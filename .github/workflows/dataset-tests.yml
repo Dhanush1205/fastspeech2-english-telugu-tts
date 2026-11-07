@@ -15,8 +15,16 @@ jobs:
         with:
           python-version: "3.11"
       - name: Install focused test dependencies
-        run: python -m pip install --upgrade pip numpy scipy soundfile
-      - name: Compile dataset preparation scripts
-        run: python -m py_compile data_prep/prepare_indictts.py data_prep/prepare_svarah.py
+        run: python -m pip install --upgrade pip numpy scipy soundfile reportlab
+      - name: Compile data preparation and report scripts
+        run: >-
+          python -m py_compile
+          data_prep/prepare_indictts.py
+          data_prep/prepare_svarah.py
+          Report/generate_report.py
       - name: Run dataset preparation unit tests
         run: python -m unittest tests.test_dataset_preparation -v
+      - name: Build evidence-based status report
+        run: |
+          python Report/generate_report.py
+          test -s Report/Technical_Report.pdf
