@@ -48,24 +48,6 @@ _EXCLUDED_TEST_TEXTS = {
     _normalize_for_test_match(text) for text in ASSIGNMENT_TEST_SENTENCES
 }
 
-# Exact mandatory evaluation utterances must not enter train or validation.
-ASSIGNMENT_TEST_SENTENCES = (
-    "న్యూరోఫార్మకోలాజికల్ పరిశోధనలో నూతన ఔషధాల ప్రభావాన్ని విశ్లేషించారు.",
-    "తాడుపై అతని పట్టు చాలా బలంగా ఉంది.",
-    "ఆమె పట్టు చీరను ధరించి వేడుకకు వచ్చింది.",
-    "పులి అడ  విలో నిశ్శబ్దంగా నడిచింది.",
-    "ఈ సమావేశం 2026 నవంబర్ 12వ తేదీ ఉదయం 10:45 గంటలకు ప్రారంభమవుతుంది, సమయానికి సిద్ధంగా ఉంచండి.",
-)
-
-
-def _normalize_for_test_match(text: str) -> str:
-    return re.sub(r"\s+", " ", unicodedata.normalize("NFC", text)).strip()
-
-
-_EXCLUDED_TEST_TEXTS = {
-    _normalize_for_test_match(text) for text in ASSIGNMENT_TEST_SENTENCES
-}
-
 
 def parse_args():
     parser = argparse.ArgumentParser(
@@ -236,10 +218,6 @@ def prepare_indictts(args):
         if _normalize_for_test_match(transcript) in _EXCLUDED_TEST_TEXTS:
             rejected += 1
             logger.info("Excluded mandatory assignment evaluation utterance at record %d", source_index)
-            continue
-        if _normalize_for_test_match(transcript) in _EXCLUDED_TEST_TEXTS:
-            rejected += 1
-            logger.info("Excluded mandatory evaluation sentence at source record %d", source_index)
             continue
         try:
             waveform, source_sr = decode_audio(item.get("audio"))
