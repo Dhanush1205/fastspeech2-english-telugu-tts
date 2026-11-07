@@ -42,10 +42,12 @@ datasets/
 *.pt
 *.ckpt
 
-# Pretrained vocoders (download separately)
-hifigan/
+# Pretrained vocoders (download checkpoints separately; keep code)
 vocoder_checkpoints/
 indicmfa_models/
+hifigan/*.pth
+hifigan/*.pth.tar
+hifigan/*.pt
 
 # Logs
 logs/

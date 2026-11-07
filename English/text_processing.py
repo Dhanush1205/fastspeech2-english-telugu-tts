@@ -305,8 +305,14 @@ class EnglishPhonemizer:
         self._load_g2p()
     
     def _load_g2p(self):
-        """Try to load g2p_en."""
+        """Try to load g2p_en with required NLTK taggers."""
         try:
+            import nltk
+            for resource in ["averaged_perceptron_tagger", "averaged_perceptron_tagger_eng", "cmudict"]:
+                try:
+                    nltk.download(resource, quiet=True)
+                except Exception:
+                    pass
             from g2p_en import G2p
             self._g2p = G2p()
             logger.info("g2p_en loaded successfully")
