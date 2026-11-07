@@ -34,6 +34,7 @@ def parse_args():
     parser.add_argument("--max_utterance_sec", type=float, default=12.0)
     parser.add_argument("--min_utterance_sec", type=float, default=0.5)
     parser.add_argument("--max_samples", type=int, default=None, help="Limit number of samples for quick testing")
+    parser.add_argument("--smoke_test", action="store_true", help="Quick smoke test mode: downloads 10 train and 4 val independent genuine samples")
     return parser.parse_args()
 
 
@@ -55,14 +56,20 @@ def prepare_svarah(args):
     splits_dir = Path(args.splits_dir)
     splits_dir.mkdir(parents=True, exist_ok=True)
 
+    is_smoke = getattr(args, "smoke_test", False)
+    target_train_count = 10 if is_smoke else None
+    target_val_count = 4 if is_smoke else None
+
     target_train_sec = args.train_hours * 3600.0
     target_val_sec = args.val_hours * 3600.0
 
-    logger.info(f"Target train duration: {args.train_hours:.2f}h ({target_train_sec:.0f}s)")
-    logger.info(f"Target val duration:   {args.val_hours:.2f}h ({target_val_sec:.0f}s)")
+    if is_smoke:
+        logger.info(f"[SMOKE TEST MODE] Target train: {target_train_count} samples, val: {target_val_count} samples")
+    else:
+        logger.info(f"Target train duration: {args.train_hours:.2f}h ({target_train_sec:.0f}s)")
+        logger.info(f"Target val duration:   {args.val_hours:.2f}h ({target_val_sec:.0f}s)")
 
     hf_token = os.environ.get("HF_TOKEN")
-    dataset = None
     dataset_name = "ai4bharat/Svarah"
 
     try:
@@ -73,14 +80,19 @@ def prepare_svarah(args):
         next(iter(dataset))
         logger.info(f"Successfully connected to {dataset_name}.")
     except Exception as e:
-        logger.warning(
-            f"Could not load {dataset_name} ({e}). "
-            f"Falling back to open Indian English TTS corpus: 'SPRINGLab/IndicTTS-English'. "
-            f"To use Svarah directly, accept conditions at https://huggingface.co/datasets/ai4bharat/Svarah and set export HF_TOKEN=<token>."
+        error_msg = (
+            f"\n{'='*70}\n"
+            f"ERROR: Cannot access required dataset '{dataset_name}': {e}\n"
+            f"The assignment specifically requires the AI4Bharat Svarah dataset.\n"
+            f"Svarah is a gated Hugging Face repository. To resolve access:\n"
+            f"  1. Go to https://huggingface.co/datasets/ai4bharat/Svarah and accept the terms.\n"
+            f"  2. Create an access token at https://huggingface.co/settings/tokens.\n"
+            f"  3. Set HF_TOKEN environment variable (e.g. export HF_TOKEN='hf_...').\n"
+            f"Per assignment instructions, automatic substitution of other datasets is prohibited.\n"
+            f"{'='*70}\n"
         )
-        dataset_name = "SPRINGLab/IndicTTS-English"
-        dataset = load_dataset(dataset_name, split="train", streaming=True)
-        dataset = dataset.cast_column("audio", datasets.Audio(decode=False))
+        logger.error(error_msg)
+        raise RuntimeError(error_msg) from e
 
     train_samples = []
     val_samples = []
@@ -89,10 +101,14 @@ def prepare_svarah(args):
 
     sample_idx = 0
     for item in dataset:
-        if args.max_samples and (len(train_samples) + len(val_samples)) >= args.max_samples:
-            break
-        if train_sec >= target_train_sec and val_sec >= target_val_sec:
-            break
+        if is_smoke:
+            if len(train_samples) >= target_train_count and len(val_samples) >= target_val_count:
+                break
+        else:
+            if args.max_samples and (len(train_samples) + len(val_samples)) >= args.max_samples:
+                break
+            if train_sec >= target_train_sec and val_sec >= target_val_sec:
+                break
 
         sample_idx += 1
         sid = f"english_{sample_idx:06d}"
@@ -143,12 +159,20 @@ def prepare_svarah(args):
             "duration": duration,
         }
 
-        if train_sec < target_train_sec:
-            train_samples.append(entry)
-            train_sec += duration
-        elif val_sec < target_val_sec:
-            val_samples.append(entry)
-            val_sec += duration
+        if is_smoke:
+            if len(train_samples) < target_train_count:
+                train_samples.append(entry)
+                train_sec += duration
+            elif len(val_samples) < target_val_count:
+                val_samples.append(entry)
+                val_sec += duration
+        else:
+            if train_sec < target_train_sec:
+                train_samples.append(entry)
+                train_sec += duration
+            elif val_sec < target_val_sec:
+                val_samples.append(entry)
+                val_sec += duration
 
     logger.info(f"Collected Train: {len(train_samples)} samples ({train_sec/3600:.2f}h)")
     logger.info(f"Collected Val:   {len(val_samples)} samples ({val_sec/3600:.2f}h)")

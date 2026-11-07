@@ -267,6 +267,13 @@ def select_data_split(
         else:
             break
     
+    if len(val) == 0 and len(train) > 1:
+        n_val = max(1, int(len(train) * 0.2))
+        val = train[-n_val:]
+        train = train[:-n_val]
+        train_dur = sum(s.get("duration", 0.0) for s in train)
+        val_dur = sum(s.get("duration", 0.0) for s in val)
+
     logger.info(f"Telugu train: {len(train)} samples, {train_dur/3600:.2f}h")
     logger.info(f"Telugu val:   {len(val)} samples, {val_dur/3600:.2f}h")
     
@@ -640,16 +647,27 @@ def run_preprocessing(args):
         samples, args.train_hours, args.val_hours, args.seed
     )
     
-    # Save manifests
-    splits_dir = Path(os.path.dirname(args.config)) / "data_splits"
+    # Save manifests to both data_splits and output_dir
+    config_parent = Path(args.config).parent
+    lang_root = config_parent.parent if config_parent.name == "config" else config_parent
+    splits_dir = lang_root / "data_splits"
     splits_dir.mkdir(parents=True, exist_ok=True)
+    out_dir.mkdir(parents=True, exist_ok=True)
     
     for split_name, split_samples in [("train", train_samples), ("val", val_samples)]:
-        manifest_path = splits_dir / f"{split_name}.txt"
-        with open(manifest_path, "w", encoding="utf-8") as f:
-            for s in split_samples:
-                f.write(f"{s['id']}|{s['audio_path']}|{s['text']}|{s.get('speaker', 'unknown')}\n")
-        logger.info(f"Saved {split_name} manifest: {manifest_path}")
+        for target_dir in [splits_dir, out_dir]:
+            manifest_path = target_dir / f"{split_name}.txt"
+            with open(manifest_path, "w", encoding="utf-8") as f:
+                for s in split_samples:
+                    f.write(f"{s['id']}|{s['audio_path']}|{s['text']}|{s.get('speaker', 'unknown')}\n")
+            logger.info(f"Saved {split_name} manifest: {manifest_path}")
+    
+    # Also copy vocabulary to lang_root if created in out_dir
+    vocab_out = out_dir / "telugu_vocab.json"
+    vocab_lang = lang_root / "telugu_vocab.json"
+    if vocab_out.exists() and not vocab_lang.exists():
+        import shutil
+        shutil.copyfile(str(vocab_out), str(vocab_lang))
     
     # Preprocess features
     from tqdm import tqdm

@@ -56,6 +56,16 @@ def parse_args():
     parser.add_argument("--restore_step", type=int, default=0)
     parser.add_argument("--total_step", type=int, default=None,
                         help="Override total_step from train.yaml (e.g. for benchmark runs)")
+    parser.add_argument("--save_step", type=int, default=None,
+                        help="Override save_step interval")
+    parser.add_argument("--eval_step", type=int, default=None,
+                        help="Override evaluation interval")
+    parser.add_argument("--val_step", type=int, default=None,
+                        help="Alias for --eval_step")
+    parser.add_argument("--log_step", type=int, default=None,
+                        help="Override logging interval")
+    parser.add_argument("--drive_save_dir", type=str, default=None,
+                        help="Persistent Google Drive directory to mirror checkpoints and logs")
     return parser.parse_args()
 
 
@@ -90,8 +100,31 @@ def build_model(preprocess_cfg, model_cfg):
     return model
 
 
-def load_checkpoint(model, optimizer, ckpt_path, restore_step):
+def sync_to_drive(src_file, drive_dir):
+    """Synchronize a checkpoint or log file to persistent Google Drive."""
+    if not drive_dir or not os.path.exists(src_file):
+        return
+    try:
+        import shutil
+        os.makedirs(drive_dir, exist_ok=True)
+        dst_file = os.path.join(drive_dir, os.path.basename(src_file))
+        shutil.copyfile(src_file, dst_file)
+        logger.info(f"[Drive Sync] Copied {os.path.basename(src_file)} to {drive_dir}")
+    except Exception as e:
+        logger.warning(f"[Drive Sync] Failed to copy {src_file} to Drive: {e}")
+
+
+def load_checkpoint(model, optimizer, ckpt_path, restore_step, drive_save_dir=None):
     ckpt_file = os.path.join(ckpt_path, f"{restore_step}.pth.tar")
+    if not os.path.exists(ckpt_file) and drive_save_dir:
+        drive_file = os.path.join(drive_save_dir, f"{restore_step}.pth.tar")
+        if os.path.exists(drive_file):
+            logger.info(f"Local checkpoint not found at {ckpt_file}. Restoring from Google Drive: {drive_file}")
+            os.makedirs(ckpt_path, exist_ok=True)
+            import shutil
+            shutil.copyfile(drive_file, ckpt_file)
+            ckpt_file = drive_file
+
     if not os.path.exists(ckpt_file):
         raise FileNotFoundError(f"Checkpoint not found: {ckpt_file}")
     logger.info(f"Restoring Telugu checkpoint from step {restore_step}")
@@ -101,7 +134,7 @@ def load_checkpoint(model, optimizer, ckpt_path, restore_step):
     return model, optimizer
 
 
-def save_checkpoint(model, optimizer, step, ckpt_path, config_metadata=None):
+def save_checkpoint(model, optimizer, step, ckpt_path, config_metadata=None, drive_save_dir=None):
     os.makedirs(ckpt_path, exist_ok=True)
     ckpt_file = os.path.join(ckpt_path, f"{step}.pth.tar")
     payload = {
@@ -113,6 +146,9 @@ def save_checkpoint(model, optimizer, step, ckpt_path, config_metadata=None):
         payload["config"] = config_metadata
     torch.save(payload, ckpt_file)
     logger.info(f"Saved Telugu checkpoint: {ckpt_file}")
+
+    # Immediately mirror to Google Drive
+    sync_to_drive(ckpt_file, drive_save_dir)
 
     # Keep last 3
     all_ckpts = sorted(
@@ -156,10 +192,13 @@ def train(args):
 
     batch_size = train_cfg["optimizer"]["batch_size"]
     total_step = args.total_step if args.total_step is not None else train_cfg["step"]["total_step"]
-    log_step = train_cfg["step"]["log_step"]
-    val_step = train_cfg["step"]["val_step"]
-    save_step = train_cfg["step"]["save_step"]
+    log_step = args.log_step if args.log_step is not None else train_cfg["step"]["log_step"]
+    val_step = args.val_step or args.eval_step if (args.val_step or args.eval_step) is not None else train_cfg["step"]["val_step"]
+    save_step = args.save_step if args.save_step is not None else train_cfg["step"]["save_step"]
     grad_clip = train_cfg["optimizer"]["grad_clip_thresh"]
+    drive_save_dir = args.drive_save_dir or os.environ.get("DRIVE_SAVE_DIR")
+    if drive_save_dir:
+        logger.info(f"Google Drive checkpoint synchronization enabled: {drive_save_dir}")
 
     logger.info("Loading Telugu datasets...")
     train_dataset = FastSpeech2Dataset(
@@ -201,14 +240,25 @@ def train(args):
 
     loss_fn = FastSpeech2Loss(preprocess_cfg, model_cfg)
 
+    train_losses, val_losses = [], []
     if args.restore_step > 0:
-        model, optimizer = load_checkpoint(model, optimizer, ckpt_path, args.restore_step)
+        model, optimizer = load_checkpoint(model, optimizer, ckpt_path, args.restore_step, drive_save_dir)
+        loss_path = os.path.join(ckpt_path, "loss_history.npz")
+        if not os.path.exists(loss_path) and drive_save_dir and os.path.exists(os.path.join(drive_save_dir, "loss_history.npz")):
+            loss_path = os.path.join(drive_save_dir, "loss_history.npz")
+        if os.path.exists(loss_path):
+            try:
+                hist = np.load(loss_path)
+                train_losses = list(zip(hist["train_steps"].tolist(), hist["train_losses"].tolist()))
+                val_losses = list(zip(hist["val_steps"].tolist(), hist["val_losses"].tolist()))
+                logger.info(f"Loaded existing Telugu loss history with {len(train_losses)} train and {len(val_losses)} val records.")
+            except Exception as e:
+                logger.warning(f"Could not load previous Telugu loss history: {e}")
 
     writer = SummaryWriter(log_path)
     model.train()
 
     step = args.restore_step
-    train_losses, val_losses = [], []
     train_iter = iter(train_loader)
 
     outer_bar = tqdm(total=total_step, desc="Telugu Training", position=0)
@@ -249,27 +299,32 @@ def train(args):
             val_losses.append((step, val_loss))
 
         if step % save_step == 0:
-            save_checkpoint(model, optimizer, step, ckpt_path, config_metadata={"preprocess": preprocess_cfg, "model": model_cfg, "train": train_cfg})
+            save_checkpoint(model, optimizer, step, ckpt_path, config_metadata={"preprocess": preprocess_cfg, "model": model_cfg, "train": train_cfg}, drive_save_dir=drive_save_dir)
+            loss_path = os.path.join(ckpt_path, "loss_history.npz")
             np.savez(
-                os.path.join(ckpt_path, "loss_history.npz"),
+                loss_path,
                 train_steps=np.array([x[0] for x in train_losses]),
                 train_losses=np.array([x[1] for x in train_losses]),
                 val_steps=np.array([x[0] for x in val_losses]),
                 val_losses=np.array([x[1] for x in val_losses]),
             )
+            sync_to_drive(loss_path, drive_save_dir)
 
     outer_bar.close()
-    save_checkpoint(model, optimizer, step, ckpt_path, config_metadata={"preprocess": preprocess_cfg, "model": model_cfg, "train": train_cfg})
+    save_checkpoint(model, optimizer, step, ckpt_path, config_metadata={"preprocess": preprocess_cfg, "model": model_cfg, "train": train_cfg}, drive_save_dir=drive_save_dir)
     final_file = os.path.join(ckpt_path, "checkpoint_final.pth.tar")
     import shutil
     shutil.copyfile(os.path.join(ckpt_path, f"{step}.pth.tar"), final_file)
+    sync_to_drive(final_file, drive_save_dir)
+    loss_path = os.path.join(ckpt_path, "loss_history.npz")
     np.savez(
-        os.path.join(ckpt_path, "loss_history.npz"),
+        loss_path,
         train_steps=np.array([x[0] for x in train_losses]),
         train_losses=np.array([x[1] for x in train_losses]),
         val_steps=np.array([x[0] for x in val_losses]),
         val_losses=np.array([x[1] for x in val_losses]),
     )
+    sync_to_drive(loss_path, drive_save_dir)
     logger.info("Telugu training complete!")
     writer.close()
 

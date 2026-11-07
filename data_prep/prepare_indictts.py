@@ -35,6 +35,7 @@ def parse_args():
     parser.add_argument("--max_utterance_sec", type=float, default=12.0)
     parser.add_argument("--min_utterance_sec", type=float, default=0.5)
     parser.add_argument("--max_samples", type=int, default=None, help="Limit number of samples for quick testing")
+    parser.add_argument("--smoke_test", action="store_true", help="Quick smoke test mode: downloads 10 train and 4 val independent genuine samples")
     return parser.parse_args()
 
 
@@ -56,11 +57,18 @@ def prepare_indictts(args):
     splits_dir = Path(args.splits_dir)
     splits_dir.mkdir(parents=True, exist_ok=True)
 
+    is_smoke = getattr(args, "smoke_test", False)
+    target_train_count = 10 if is_smoke else None
+    target_val_count = 4 if is_smoke else None
+
     target_train_sec = args.train_hours * 3600.0
     target_val_sec = args.val_hours * 3600.0
 
-    logger.info(f"Target train duration: {args.train_hours:.2f}h ({target_train_sec:.0f}s)")
-    logger.info(f"Target val duration:   {args.val_hours:.2f}h ({target_val_sec:.0f}s)")
+    if is_smoke:
+        logger.info(f"[SMOKE TEST MODE] Target train: {target_train_count} samples, val: {target_val_count} samples")
+    else:
+        logger.info(f"Target train duration: {args.train_hours:.2f}h ({target_train_sec:.0f}s)")
+        logger.info(f"Target val duration:   {args.val_hours:.2f}h ({target_val_sec:.0f}s)")
     logger.info("Loading IndicTTS Telugu stream from HuggingFace (SPRINGLab/IndicTTS_Telugu)...")
 
     dataset = load_dataset("SPRINGLab/IndicTTS_Telugu", split="train", streaming=True)
@@ -73,10 +81,14 @@ def prepare_indictts(args):
 
     sample_idx = 0
     for item in dataset:
-        if args.max_samples and (len(train_samples) + len(val_samples)) >= args.max_samples:
-            break
-        if train_sec >= target_train_sec and val_sec >= target_val_sec:
-            break
+        if is_smoke:
+            if len(train_samples) >= target_train_count and len(val_samples) >= target_val_count:
+                break
+        else:
+            if args.max_samples and (len(train_samples) + len(val_samples)) >= args.max_samples:
+                break
+            if train_sec >= target_train_sec and val_sec >= target_val_sec:
+                break
 
         sample_idx += 1
         sid = f"telugu_{sample_idx:06d}"
@@ -127,12 +139,20 @@ def prepare_indictts(args):
             "duration": duration,
         }
 
-        if train_sec < target_train_sec:
-            train_samples.append(entry)
-            train_sec += duration
-        elif val_sec < target_val_sec:
-            val_samples.append(entry)
-            val_sec += duration
+        if is_smoke:
+            if len(train_samples) < target_train_count:
+                train_samples.append(entry)
+                train_sec += duration
+            elif len(val_samples) < target_val_count:
+                val_samples.append(entry)
+                val_sec += duration
+        else:
+            if train_sec < target_train_sec:
+                train_samples.append(entry)
+                train_sec += duration
+            elif val_sec < target_val_sec:
+                val_samples.append(entry)
+                val_sec += duration
 
     logger.info(f"Collected Train: {len(train_samples)} samples ({train_sec/3600:.2f}h)")
     logger.info(f"Collected Val:   {len(val_samples)} samples ({val_sec/3600:.2f}h)")
