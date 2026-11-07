@@ -26,6 +26,7 @@ data/
 raw_data/
 preprocessed/
 *.wav
+!Results/**/*.wav
 *.mp3
 *.flac
 *.TextGrid
@@ -85,8 +86,8 @@ TextGrids/
 mfa_output/
 
 # Processed features (large)
-mel/
-pitch/
-energy/
-duration/
+data/**/mel/
+data/**/pitch/
+data/**/energy/
+data/**/duration/
 

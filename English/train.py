@@ -33,6 +33,7 @@ import logging
 import yaml
 import torch
 import numpy as np
+from typing import Optional
 from torch.utils.data import DataLoader
 from torch.utils.tensorboard import SummaryWriter
 from tqdm import tqdm
@@ -218,6 +219,7 @@ def train(args):
     log_path = train_cfg["path"]["log_path"]
     os.makedirs(ckpt_path, exist_ok=True)
     os.makedirs(log_path, exist_ok=True)
+    writer = SummaryWriter(log_path)
 
     # Training hyperparameters
     batch_size = train_cfg["optimizer"]["batch_size"]
@@ -286,6 +288,7 @@ def train(args):
     # Loss tracking for plots
     train_losses = []
     val_losses = []
+    step = args.restore_step
 
     # Restore from checkpoint if requested
     if args.restore_step > 0:
@@ -308,6 +311,7 @@ def train(args):
     outer_bar.update(step)
 
     # Infinite dataloader loop
+    epoch = 0
     train_iter = iter(train_loader)
 
     while step < total_step:

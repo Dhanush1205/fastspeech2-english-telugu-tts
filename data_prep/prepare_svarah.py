@@ -295,6 +295,13 @@ def prepare_svarah(args):
             dataset = load_dataset(dataset_name, split="test", streaming=True, token=hf_token)
             upstream_split = "test"
 
+        # Ensure raw audio bytes are preserved without requiring optional torchcodec binary
+        import datasets
+        try:
+            dataset = dataset.cast_column("audio_filepath", datasets.Audio(decode=False))
+        except Exception as cast_e:
+            logger.debug(f"Could not cast audio_filepath to decode=False: {cast_e}")
+
         logger.info(f"Successfully connected to {dataset_name} (upstream split: '{upstream_split}').")
     except Exception as e:
         error_msg = (
