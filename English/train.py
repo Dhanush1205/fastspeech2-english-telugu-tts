@@ -117,19 +117,23 @@ def load_checkpoint(model, optimizer, ckpt_path: str, restore_step: int):
     return model, optimizer
 
 
-def save_checkpoint(model, optimizer, step: int, ckpt_path: str):
-    """Save model and optimizer state."""
+def save_checkpoint(model, optimizer, step: int, ckpt_path: str, config_metadata: dict = None):
+    """Save model and optimizer state with global step and configuration metadata."""
     os.makedirs(ckpt_path, exist_ok=True)
     ckpt_file = os.path.join(ckpt_path, f"{step}.pth.tar")
-    torch.save({
+    payload = {
+        "step": step,
         "model": model.state_dict(),
         "optimizer": optimizer._optimizer.state_dict(),
-    }, ckpt_file)
+    }
+    if config_metadata:
+        payload["config"] = config_metadata
+    torch.save(payload, ckpt_file)
     logger.info(f"Saved checkpoint: {ckpt_file}")
 
     # Keep only last 3 checkpoints to save disk space
     all_ckpts = sorted(
-        [f for f in os.listdir(ckpt_path) if f.endswith(".pth.tar")],
+        [f for f in os.listdir(ckpt_path) if f.endswith(".pth.tar") and f.replace(".pth.tar", "").isdigit()],
         key=lambda x: int(x.replace(".pth.tar", ""))
     )
     for old_ckpt in all_ckpts[:-3]:
@@ -201,13 +205,14 @@ def train(args):
         language="en",
     )
 
+    workers = 0 if (os.name == "nt" or device.type == "cpu") else 4
     train_loader = DataLoader(
         train_dataset,
         batch_size=batch_size,
         shuffle=True,
         collate_fn=collate_fn,
-        num_workers=4,
-        pin_memory=True if device.type == "cuda" else False,
+        num_workers=workers,
+        pin_memory=(device.type == "cuda"),
         drop_last=True,
     )
     val_loader = DataLoader(
@@ -215,7 +220,7 @@ def train(args):
         batch_size=batch_size,
         shuffle=False,
         collate_fn=collate_fn,
-        num_workers=2,
+        num_workers=0 if (os.name == "nt" or device.type == "cpu") else 2,
     )
 
     logger.info(f"Train samples: {len(train_dataset)}, Val samples: {len(val_dataset)}")
@@ -323,7 +328,7 @@ def train(args):
 
         # Save checkpoint
         if step % save_step == 0:
-            save_checkpoint(model, optimizer, step, ckpt_path)
+            save_checkpoint(model, optimizer, step, ckpt_path, config_metadata={"preprocess": preprocess_cfg, "model": model_cfg, "train": train_cfg})
 
             # Save loss history alongside checkpoint
             loss_path = os.path.join(ckpt_path, "loss_history.npz")
@@ -339,7 +344,10 @@ def train(args):
     logger.info("Training complete!")
 
     # Save final checkpoint
-    save_checkpoint(model, optimizer, step, ckpt_path)
+    save_checkpoint(model, optimizer, step, ckpt_path, config_metadata={"preprocess": preprocess_cfg, "model": model_cfg, "train": train_cfg})
+    final_ckpt = os.path.join(ckpt_path, "checkpoint_final.pth.tar")
+    import shutil
+    shutil.copyfile(os.path.join(ckpt_path, f"{step}.pth.tar"), final_ckpt)
 
     # Save final loss history
     loss_path = os.path.join(ckpt_path, "loss_history.npz")

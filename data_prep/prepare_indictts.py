@@ -73,7 +73,7 @@ def prepare_indictts(args):
 
     sample_idx = 0
     for item in dataset:
-        if args.max_samples and sample_idx >= args.max_samples:
+        if args.max_samples and (len(train_samples) + len(val_samples)) >= args.max_samples:
             break
         if train_sec >= target_train_sec and val_sec >= target_val_sec:
             break
