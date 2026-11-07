@@ -45,6 +45,7 @@ datasets/
 # Pretrained vocoders (download separately)
 hifigan/
 vocoder_checkpoints/
+indicmfa_models/
 
 # Logs
 logs/

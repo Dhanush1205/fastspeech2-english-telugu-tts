@@ -38,12 +38,16 @@ import numpy as np
 from pathlib import Path
 from typing import List, Dict, Tuple, Optional
 
+# Add project root to sys.path
+sys.path.insert(0, str(Path(__file__).parent.parent))
+
 logger = logging.getLogger(__name__)
 
 
 def parse_args():
+    script_dir = Path(__file__).parent
     parser = argparse.ArgumentParser(description="Preprocess IndicTTS Telugu for FastSpeech 2")
-    parser.add_argument("--config", type=str, default="config.yaml")
+    parser.add_argument("--config", type=str, default=str(script_dir / "config.yaml"))
     parser.add_argument("--data_dir", type=str, default="data/indictts_telugu")
     parser.add_argument("--output_dir", type=str, default="data/preprocessed/telugu")
     parser.add_argument("--mfa_dir", type=str, default=None,

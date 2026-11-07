@@ -40,9 +40,11 @@ def parse_args():
 
 def prepare_indictts(args):
     try:
+        import datasets
         from datasets import load_dataset
         import soundfile as sf
         import librosa
+        import io
     except ImportError as e:
         logger.error(f"Missing required library: {e}. Run: pip install datasets soundfile librosa")
         sys.exit(1)
@@ -62,6 +64,7 @@ def prepare_indictts(args):
     logger.info("Loading IndicTTS Telugu stream from HuggingFace (SPRINGLab/IndicTTS_Telugu)...")
 
     dataset = load_dataset("SPRINGLab/IndicTTS_Telugu", split="train", streaming=True)
+    dataset = dataset.cast_column("audio", datasets.Audio(decode=False))
 
     train_samples = []
     val_samples = []
@@ -78,12 +81,24 @@ def prepare_indictts(args):
         sample_idx += 1
         sid = f"telugu_{sample_idx:06d}"
         audio_data = item.get("audio", {})
-        array = audio_data.get("array")
-        sr = audio_data.get("sampling_rate", 16000)
+        audio_bytes = audio_data.get("bytes")
         text = item.get("transcription", item.get("text", "")).strip()
 
-        if array is None or len(array) == 0 or not text:
+        if not audio_bytes or not text:
             continue
+
+        try:
+            array, sr = sf.read(io.BytesIO(audio_bytes))
+        except Exception as e:
+            logger.warning(f"Failed to decode audio bytes for {sid}: {e}")
+            continue
+
+        if len(array) == 0:
+            continue
+
+        # Convert to mono if multi-channel
+        if len(array.shape) > 1:
+            array = np.mean(array, axis=-1)
 
         # Check duration
         duration = len(array) / sr

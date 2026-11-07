@@ -39,9 +39,11 @@ def parse_args():
 
 def prepare_svarah(args):
     try:
+        import datasets
         from datasets import load_dataset
         import soundfile as sf
         import librosa
+        import io
     except ImportError as e:
         logger.error(f"Missing required library: {e}. Run: pip install datasets soundfile librosa")
         sys.exit(1)
@@ -58,9 +60,27 @@ def prepare_svarah(args):
 
     logger.info(f"Target train duration: {args.train_hours:.2f}h ({target_train_sec:.0f}s)")
     logger.info(f"Target val duration:   {args.val_hours:.2f}h ({target_val_sec:.0f}s)")
-    logger.info("Loading Svarah stream from HuggingFace (ai4bharat/Svarah)...")
 
-    dataset = load_dataset("ai4bharat/Svarah", split="train", streaming=True)
+    hf_token = os.environ.get("HF_TOKEN")
+    dataset = None
+    dataset_name = "ai4bharat/Svarah"
+
+    try:
+        logger.info(f"Attempting to load {dataset_name} stream from HuggingFace...")
+        dataset = load_dataset(dataset_name, split="train", streaming=True, token=hf_token)
+        dataset = dataset.cast_column("audio", datasets.Audio(decode=False))
+        # Trigger first item to verify access
+        next(iter(dataset))
+        logger.info(f"Successfully connected to {dataset_name}.")
+    except Exception as e:
+        logger.warning(
+            f"Could not load {dataset_name} ({e}). "
+            f"Falling back to open Indian English TTS corpus: 'SPRINGLab/IndicTTS-English'. "
+            f"To use Svarah directly, accept conditions at https://huggingface.co/datasets/ai4bharat/Svarah and set export HF_TOKEN=<token>."
+        )
+        dataset_name = "SPRINGLab/IndicTTS-English"
+        dataset = load_dataset(dataset_name, split="train", streaming=True)
+        dataset = dataset.cast_column("audio", datasets.Audio(decode=False))
 
     train_samples = []
     val_samples = []
@@ -75,14 +95,26 @@ def prepare_svarah(args):
             break
 
         sample_idx += 1
-        sid = f"svarah_{sample_idx:06d}"
+        sid = f"english_{sample_idx:06d}"
         audio_data = item.get("audio", {})
-        array = audio_data.get("array")
-        sr = audio_data.get("sampling_rate", 16000)
+        audio_bytes = audio_data.get("bytes")
         text = item.get("transcription", item.get("text", "")).strip()
 
-        if array is None or len(array) == 0 or not text:
+        if not audio_bytes or not text:
             continue
+
+        try:
+            array, sr = sf.read(io.BytesIO(audio_bytes))
+        except Exception as e:
+            logger.warning(f"Failed to decode audio bytes for {sid}: {e}")
+            continue
+
+        if len(array) == 0:
+            continue
+
+        # Convert to mono if multi-channel
+        if len(array.shape) > 1:
+            array = np.mean(array, axis=-1)
 
         # Check duration
         duration = len(array) / sr
@@ -98,11 +130,16 @@ def prepare_svarah(args):
         wav_path = wavs_dir / f"{sid}.wav"
         sf.write(str(wav_path), array, sr, subtype="PCM_16")
 
+        # Save text file (.txt) alongside WAV for MFA aligner
+        txt_path = wavs_dir / f"{sid}.txt"
+        with open(txt_path, "w", encoding="utf-8") as f:
+            f.write(text)
+
         entry = {
             "id": sid,
             "audio_path": str(wav_path).replace("\\", "/"),
             "text": text,
-            "speaker": item.get("speaker_id", "svarah_speaker"),
+            "speaker": item.get("speaker", item.get("speaker_id", "english_speaker")),
             "duration": duration,
         }
 
