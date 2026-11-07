@@ -125,3 +125,4 @@ def prepare_svarah(args):
 if __name__ == "__main__":
     args = parse_args()
     prepare_svarah(args)
+

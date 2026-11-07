@@ -7,3 +7,4 @@ This directory stores evaluation artifacts generated from trained models:
 - `training_loss.png` / `validation_loss.png`: Training and validation loss curves generated from genuine training runs (`loss_history.npz`).
 
 All artifacts must be produced from actual model execution and genuine checkpoints. No synthetic fallbacks, random trajectories, or placeholder audio are committed.
+
