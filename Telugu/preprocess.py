@@ -46,11 +46,15 @@ def parse_args():
     parser.add_argument("--config", type=str, default="config.yaml")
     parser.add_argument("--data_dir", type=str, default="data/indictts_telugu")
     parser.add_argument("--output_dir", type=str, default="data/preprocessed/telugu")
+    parser.add_argument("--mfa_dir", type=str, default=None,
+                        help="Directory containing IndicMFA TextGrid alignments")
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--train_hours", type=float, default=5.0)
     parser.add_argument("--val_hours", type=float, default=1.0)
     parser.add_argument("--compute_durations", action="store_true",
-                        help="Run CTC-segmentation to compute durations (slow)")
+                        help="Run aligner (IndicMFA / CTC-segmentation) to compute durations")
+    parser.add_argument("--download_indicmfa_models", action="store_true",
+                        help="Download official AI4Bharat IndicMFA Telugu models and dictionary")
     return parser.parse_args()
 
 
@@ -320,7 +324,85 @@ def extract_energy(mel: np.ndarray) -> np.ndarray:
 
 
 # ---------------------------------------------------------------------------
-# CTC-Segmentation Duration Alignment (Telugu-specific)
+# IndicMFA Duration Alignment (Primary Telugu Aligner)
+# ---------------------------------------------------------------------------
+
+def download_indicmfa_models(download_dir: str = "indicmfa_models") -> Tuple[str, str]:
+    """Download official AI4Bharat IndicMFA Telugu acoustic model and dictionary.
+    
+    IndicMFA uses Grapheme-to-Grapheme (G2G) alignment for Telugu.
+    Models are hosted on AI4Bharat IndicMFA GitHub releases.
+    """
+    import urllib.request
+    dl_dir = Path(download_dir)
+    dl_dir.mkdir(parents=True, exist_ok=True)
+    
+    base_url = "https://github.com/AI4Bharat/IndicMFA/releases/download/Telugu"
+    model_name = "Telugu_Acoustic_Model.zip"
+    dict_name = "Telugu_Dictionary_g2g.txt"
+    
+    model_path = dl_dir / model_name
+    dict_path = dl_dir / dict_name
+    
+    if not model_path.exists():
+        logger.info(f"Downloading IndicMFA Telugu Acoustic Model from {base_url}/{model_name}...")
+        urllib.request.urlretrieve(f"{base_url}/{model_name}", str(model_path))
+        logger.info(f"Saved: {model_path}")
+    if not dict_path.exists():
+        logger.info(f"Downloading IndicMFA Telugu G2G Dictionary from {base_url}/{dict_name}...")
+        urllib.request.urlretrieve(f"{base_url}/{dict_name}", str(dict_path))
+        logger.info(f"Saved: {dict_path}")
+        
+    return str(model_path), str(dict_path)
+
+
+def parse_indicmfa_textgrid(
+    textgrid_path: str,
+    text: str,
+    hop_length: int = 256,
+    sr: int = 22050,
+) -> np.ndarray:
+    """Parse IndicMFA TextGrid to extract grapheme-level durations in frames.
+    
+    IndicMFA generates standard MFA TextGrids with a phones tier containing
+    Telugu graphemes mapped directly from Telugu_Dictionary_g2g.txt.
+    
+    Args:
+        textgrid_path: Path to .TextGrid file produced by IndicMFA
+        text: Expected Telugu text
+        hop_length: Hop length used for mel extraction (256)
+        sr: Sampling rate (22050)
+        
+    Returns:
+        Duration array [n_graphemes] in frames
+    """
+    import tgt
+    tg = tgt.io.read_textgrid(textgrid_path)
+    phone_tier = None
+    for tier in tg.tiers:
+        if "phones" in tier.name.lower() or "phone" in tier.name.lower() or "grapheme" in tier.name.lower():
+            phone_tier = tier
+            break
+            
+    if phone_tier is None and len(tg.tiers) > 0:
+        phone_tier = tg.tiers[0]
+        
+    if phone_tier is None:
+        raise ValueError(f"No phones/graphemes tier found in {textgrid_path}")
+        
+    frame_duration = hop_length / sr
+    durations = []
+    for interval in phone_tier:
+        if interval.text not in ["", "sp", "sil", "SIL", "SPN", "<eps>"]:
+            dur_sec = interval.duration()
+            dur_frames = max(1, int(round(dur_sec / frame_duration)))
+            durations.append(dur_frames)
+            
+    return np.array(durations, dtype=np.int64)
+
+
+# ---------------------------------------------------------------------------
+# CTC-Segmentation Duration Alignment (Telugu-specific Fallback)
 # ---------------------------------------------------------------------------
 
 def compute_ctc_durations(
@@ -418,6 +500,7 @@ def preprocess_sample(
     sample: Dict,
     config: Dict,
     output_dir: str,
+    mfa_dir: Optional[str] = None,
     compute_durations: bool = False,
 ) -> Optional[Dict]:
     """Preprocess a single Telugu audio sample."""
@@ -457,18 +540,40 @@ def preprocess_sample(
         np.save(out_dir / "pitch" / f"{sample_id}.npy", f0)
         np.save(out_dir / "energy" / f"{sample_id}.npy", energy)
         
-        # Duration alignment (slow — only if requested)
+        # Duration alignment: IndicMFA (Primary) or CTC-Segmentation (Fallback)
         has_duration = False
-        if compute_durations:
-            ctc_model = config.get("preprocessing", {}).get("duration", {}).get(
-                "ctc_model", "ai4bharat/indicwav2vec_v1_telugu"
+        duration = None
+        
+        if mfa_dir is not None:
+            tg_candidates = [
+                Path(mfa_dir) / f"{sample_id}.TextGrid",
+                Path(mfa_dir) / f"{Path(audio_path).stem}.TextGrid",
+            ]
+            for tg_candidate in tg_candidates:
+                if tg_candidate.exists():
+                    try:
+                        duration = parse_indicmfa_textgrid(str(tg_candidate), sample["text"], hop, sr)
+                        break
+                    except Exception as e:
+                        logger.warning(f"Failed to parse TextGrid {tg_candidate}: {e}")
+        
+        if duration is None and compute_durations:
+            aligner = config.get("preprocessing", {}).get("duration", {}).get(
+                "aligner", config.get("alignment", {}).get("tool", "indicmfa")
             )
-            duration = compute_ctc_durations(audio_path, sample["text"], ctc_model, hop, sr)
-            if duration is not None:
-                dur_dir = out_dir / "duration"
-                dur_dir.mkdir(parents=True, exist_ok=True)
-                np.save(dur_dir / f"{sample_id}.npy", duration)
-                has_duration = True
+            if aligner == "indicmfa":
+                logger.info("IndicMFA requires MFA alignment execution. Check TextGrids in mfa_dir.")
+            else:
+                ctc_model = config.get("preprocessing", {}).get("duration", {}).get(
+                    "ctc_model", config.get("alignment", {}).get("ctc_fallback_model", "ai4bharat/indicwav2vec_v1_telugu")
+                )
+                duration = compute_ctc_durations(audio_path, sample["text"], ctc_model, hop, sr)
+        
+        if duration is not None:
+            dur_dir = out_dir / "duration"
+            dur_dir.mkdir(parents=True, exist_ok=True)
+            np.save(dur_dir / f"{sample_id}.npy", duration)
+            has_duration = True
         
         return {
             "id": sample_id,
@@ -496,6 +601,10 @@ def run_preprocessing(args):
     logger.info(f"Data dir: {args.data_dir}")
     
     config = load_config(args.config)
+    
+    if args.download_indicmfa_models:
+        logger.info("Downloading official AI4Bharat IndicMFA Telugu models and dictionary...")
+        download_indicmfa_models()
     
     # Build/save Telugu vocabulary
     logger.info("Building Telugu vocabulary...")
@@ -546,6 +655,7 @@ def run_preprocessing(args):
             sample=sample,
             config=config,
             output_dir=args.output_dir,
+            mfa_dir=args.mfa_dir,
             compute_durations=args.compute_durations,
         )
         if result:

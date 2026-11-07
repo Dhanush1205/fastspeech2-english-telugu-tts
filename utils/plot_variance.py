@@ -24,6 +24,17 @@ plt.rcParams['font.sans-serif'] = ['DejaVu Sans', 'Arial', 'Gautami', 'Nirmala U
 plt.rcParams['axes.unicode_minus'] = False
 
 
+def load_predictions(npz_file):
+    """Loads prediction dictionary from .npz file, raising FileNotFoundError if missing."""
+    npz_path = Path(npz_file)
+    if not npz_path.exists():
+        raise FileNotFoundError(
+            f"Model prediction file '{npz_path}' not found. "
+            f"Variance adaptor plots must be generated from genuine model predictions."
+        )
+    return np.load(npz_path, allow_pickle=True)
+
+
 def plot_duration(durations, tokens, title, output_path):
     """Plots predicted phoneme/grapheme durations in frames."""
     n = min(len(durations), len(tokens))
@@ -107,29 +118,18 @@ def generate_all_variance_plots(results_root="Results"):
 
         for sid in sent_ids:
             npz_file = pred_dir / f"{sid}_predictions.npz"
-            if npz_file.exists():
-                data = np.load(npz_file)
-                pitch = data["pitch"]
-                energy = data["energy"]
-                duration = data["duration"]
-                tokens = list(data["tokens"])
-            else:
-                # If inference has not yet been executed remotely, synthesize realistic representative prediction distributions
-                np.random.seed(42 + sum(ord(c) for c in sid))
-                n_tokens = 25 if lang == "English" else 30
-                tokens = [f"t{i}" for i in range(n_tokens)]
-                duration = np.random.randint(2, 9, size=n_tokens)
-                total_frames = int(np.sum(duration))
-                
-                # Pitch contour with voiced/unvoiced segments
-                t = np.linspace(0, 1, total_frames)
-                f0 = 150 + 35 * np.sin(2 * np.pi * 2 * t) + 10 * np.random.randn(total_frames)
-                voiced_mask = np.random.rand(total_frames) > 0.15
-                pitch = np.where(voiced_mask, f0, 0.0)
-                
-                # Energy contour
-                energy = 20.0 + 8.0 * np.sin(2 * np.pi * 3 * t) + 2.0 * np.random.randn(total_frames)
-                energy = np.maximum(energy, 2.0)
+            if not npz_file.exists():
+                raise FileNotFoundError(
+                    f"Model prediction file '{npz_file}' not found. "
+                    f"Variance adaptor plots must be generated from genuine model predictions. "
+                    f"Run {lang}/inference.py using a trained checkpoint before plotting."
+                )
+
+            data = np.load(npz_file, allow_pickle=True)
+            pitch = data["pitch"]
+            energy = data["energy"]
+            duration = data["duration"]
+            tokens = list(data["tokens"])
 
             # Generate 3 plots for each sentence
             plot_duration(

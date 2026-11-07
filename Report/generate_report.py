@@ -212,18 +212,35 @@ def build_technical_report(pdf_path="Report/Technical_Report.pdf"):
     story.append(PageBreak())
 
     # 5. Training Loss & Convergence Analysis
-    story.append(Paragraph("5. Training and Validation Loss Analysis", h1))
+    story.append(Paragraph("5. Training Methodology &amp; Loss Convergence Tracking", h1))
     story.append(Paragraph(
-        "Both models were trained using Adam (betas=[0.9, 0.98], eps=1e-9) with the Noam learning rate schedule (4000 warmup steps, d_model=256) "
-        "for 200,000 steps. The multi-task objective combined mel L1 loss, postnet mel loss, duration log-MSE, pitch MSE, and energy MSE with equal weighting (1.0).",
+        "Both models are configured for Adam optimization (betas=[0.9, 0.98], eps=1e-9) with the Noam learning rate schedule (4000 warmup steps, d_model=256) "
+        "targeting 200,000 steps on NVIDIA GPU instances. The multi-task objective combines mel L1 loss, postnet mel loss, duration log-MSE, pitch MSE, and energy MSE with equal weighting (1.0).<br/>"
+        "All training steps and validation evaluations log loss statistics to <code>loss_history.npz</code> to produce genuine convergence curves.",
         body
     ))
 
+    def _get_image_flowable(path, width, height, placeholder_text):
+        if os.path.exists(path):
+            return Image(path, width=width, height=height)
+        return Table(
+            [[Paragraph(f"<font color='#6b7280' size='8'><i>{placeholder_text}</i></font>", author_style)]],
+            colWidths=[width], rowHeights=[height],
+            style=TableStyle([
+                ('BACKGROUND', (0,0), (-1,-1), colors.HexColor("#f3f4f6")),
+                ('BOX', (0,0), (-1,-1), 1, colors.HexColor("#d1d5db")),
+                ('ALIGN', (0,0), (-1,-1), 'CENTER'),
+                ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
+            ])
+        )
+
     loss_images = [
         [Paragraph("<b>English Training Loss</b>", h2), Paragraph("<b>English Validation Loss</b>", h2)],
-        [Image("Results/English/training_loss.png", width=240, height=140), Image("Results/English/validation_loss.png", width=240, height=140)],
+        [_get_image_flowable("Results/English/training_loss.png", 240, 110, "English Training Loss Curve<br/>(Generated after GPU training)"),
+         _get_image_flowable("Results/English/validation_loss.png", 240, 110, "English Validation Loss Curve<br/>(Generated after GPU training)")],
         [Paragraph("<b>Telugu Training Loss</b>", h2), Paragraph("<b>Telugu Validation Loss</b>", h2)],
-        [Image("Results/Telugu/training_loss.png", width=240, height=140), Image("Results/Telugu/validation_loss.png", width=240, height=140)],
+        [_get_image_flowable("Results/Telugu/training_loss.png", 240, 110, "Telugu Training Loss Curve<br/>(Generated after GPU training)"),
+         _get_image_flowable("Results/Telugu/validation_loss.png", 240, 110, "Telugu Validation Loss Curve<br/>(Generated after GPU training)")],
     ]
     t_loss = Table(loss_images, colWidths=[260, 260])
     t_loss.setStyle(TableStyle([
@@ -234,9 +251,8 @@ def build_technical_report(pdf_path="Report/Technical_Report.pdf"):
     story.append(Spacer(1, 8))
 
     story.append(Paragraph(
-        "<b>Convergence Observations:</b> Both English and Telugu models exhibit rapid initial convergence within the first 25,000 steps as the text encoder "
-        "and mel decoder align gross spectral envelopes. Mel loss drops steadily from 3.8 to ~0.55. The duration predictor reaches log-MSE loss &lt; 0.08 by step 50,000. "
-        "Validation loss remains closely coupled with training loss, showing no catastrophic overfitting due to dropout regularization (0.2 in FFT, 0.5 in predictors).",
+        "<b>Verification &amp; Loss Tracking Protocol:</b> Training progress is checkpointed every 2,000 steps with validation evaluated against the held-out 1-hour split. "
+        "No synthetic loss curves or artificial projections are presented; all curves are generated strictly from actual training run logs using <code>utils/plot_losses.py</code>.",
         body
     ))
 
@@ -285,11 +301,14 @@ def build_technical_report(pdf_path="Report/Technical_Report.pdf"):
 
     var_images = [
         [Paragraph("<b>English E1: Duration Prediction</b>", h2), Paragraph("<b>Telugu T1: Duration Prediction</b>", h2)],
-        [Image("Results/English/variance_adaptor_plots/duration/E1_duration.png", width=250, height=90), Image("Results/Telugu/variance_adaptor_plots/duration/T1_duration.png", width=250, height=90)],
+        [_get_image_flowable("Results/English/variance_adaptor_plots/duration/E1_duration.png", 250, 75, "E1 Duration Trajectory<br/>(Generated after inference)"),
+         _get_image_flowable("Results/Telugu/variance_adaptor_plots/duration/T1_duration.png", 250, 75, "T1 Duration Trajectory<br/>(Generated after inference)")],
         [Paragraph("<b>English E1: Pitch (F0) Contour</b>", h2), Paragraph("<b>Telugu T1: Pitch (F0) Contour</b>", h2)],
-        [Image("Results/English/variance_adaptor_plots/pitch/E1_pitch.png", width=250, height=90), Image("Results/Telugu/variance_adaptor_plots/pitch/T1_pitch.png", width=250, height=90)],
+        [_get_image_flowable("Results/English/variance_adaptor_plots/pitch/E1_pitch.png", 250, 75, "E1 Pitch Contour<br/>(Generated after inference)"),
+         _get_image_flowable("Results/Telugu/variance_adaptor_plots/pitch/T1_pitch.png", 250, 75, "T1 Pitch Contour<br/>(Generated after inference)")],
         [Paragraph("<b>English E1: Energy Contour</b>", h2), Paragraph("<b>Telugu T1: Energy Contour</b>", h2)],
-        [Image("Results/English/variance_adaptor_plots/energy/E1_energy.png", width=250, height=90), Image("Results/Telugu/variance_adaptor_plots/energy/T1_energy.png", width=250, height=90)],
+        [_get_image_flowable("Results/English/variance_adaptor_plots/energy/E1_energy.png", 250, 75, "E1 Energy Contour<br/>(Generated after inference)"),
+         _get_image_flowable("Results/Telugu/variance_adaptor_plots/energy/T1_energy.png", 250, 75, "T1 Energy Contour<br/>(Generated after inference)")],
     ]
     t_var = Table(var_images, colWidths=[260, 260])
     t_var.setStyle(TableStyle([

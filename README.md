@@ -279,14 +279,14 @@ python English/inference.py \
     -p English/config/preprocess.yaml \
     -m English/config/model.yaml \
     -t English/config/train.yaml \
-    --checkpoint English/checkpoints/200000.pth.tar
+    --checkpoint English/checkpoints/checkpoint_final.pth.tar
 
 # Telugu Inference (generates T1.wav to T4.wav)
 python Telugu/inference.py \
     -p Telugu/config/preprocess.yaml \
     -m Telugu/config/model.yaml \
     -t Telugu/config/train.yaml \
-    --checkpoint Telugu/checkpoints/200000.pth.tar
+    --checkpoint Telugu/checkpoints/checkpoint_final.pth.tar
 ```
 
 ### Visualisations

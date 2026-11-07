@@ -31,17 +31,19 @@ preprocessing:
     mel_fmin: 0.0
     mel_fmax: 8000.0
   pitch:
-    feature: "phoneme_level"      # grapheme_level for Telugu
+    feature: "frame_level"
     normalization: true
   energy:
-    feature: "phoneme_level"
+    feature: "frame_level"
     normalization: true
 
 # Duration alignment tool for Telugu
-# Primary: IndicMFA (MFA-based with Telugu acoustic model from AI4Bharat)
+# Primary: IndicMFA (MFA-based with Telugu G2G acoustic model from AI4Bharat)
 # Fallback: ctc_segmentation with ai4bharat/indicwav2vec_v1_telugu
 alignment:
   tool: "indicmfa"
-  indicmfa_model: "telugu"       # Pre-trained Telugu acoustic model
+  indicmfa_acoustic_model: "Telugu_Acoustic_Model.zip"
+  indicmfa_dictionary: "Telugu_Dictionary_g2g.txt"
+  indicmfa_release_url: "https://github.com/AI4Bharat/IndicMFA/releases/download/Telugu"
   ctc_fallback_model: "ai4bharat/indicwav2vec_v1_telugu"
 

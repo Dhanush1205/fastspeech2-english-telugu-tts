@@ -99,50 +99,30 @@ class FastSpeech2Dataset(Dataset):
         else:
             phone = np.array(self.phonemizer.text_to_sequence(raw_text, self.vocab))
 
-        # Load preprocessed features
+        # Load preprocessed features with strict validation (no synthetic fallback)
         mel_path = os.path.join(self.preprocessed_path, "mel", f"{sample_id}.npy")
         pitch_path = os.path.join(self.preprocessed_path, "pitch", f"{sample_id}.npy")
         energy_path = os.path.join(self.preprocessed_path, "energy", f"{sample_id}.npy")
         dur_path = os.path.join(self.preprocessed_path, "duration", f"{sample_id}.npy")
 
-        if os.path.exists(mel_path):
-            mel = np.load(mel_path).T  # [T_mel, n_mel]
-        else:
-            mel = np.zeros((len(phone) * 5, 80), dtype=np.float32)
+        if not os.path.exists(mel_path):
+            raise FileNotFoundError(f"Missing preprocessed mel feature: '{mel_path}'. Preprocess dataset before training.")
+        if not os.path.exists(pitch_path):
+            raise FileNotFoundError(f"Missing preprocessed pitch feature: '{pitch_path}'. Preprocess dataset before training.")
+        if not os.path.exists(energy_path):
+            raise FileNotFoundError(f"Missing preprocessed energy feature: '{energy_path}'. Preprocess dataset before training.")
+        if not os.path.exists(dur_path):
+            raise FileNotFoundError(f"Missing preprocessed duration feature: '{dur_path}'. Align dataset before training.")
 
-        if os.path.exists(pitch_path):
-            pitch = np.load(pitch_path)
-            # Normalize
-            nonzero_idx = pitch > 0
-            pitch[nonzero_idx] = (pitch[nonzero_idx] - self.p_mean) / (self.p_std + 1e-8)
-        else:
-            pitch = np.zeros(mel.shape[0], dtype=np.float32)
+        mel = np.load(mel_path).T  # [T_mel, n_mel]
+        pitch = np.load(pitch_path)
+        nonzero_idx = pitch > 0
+        pitch[nonzero_idx] = (pitch[nonzero_idx] - self.p_mean) / (self.p_std + 1e-8)
 
-        if os.path.exists(energy_path):
-            energy = np.load(energy_path)
-            energy = (energy - self.e_mean) / (self.e_std + 1e-8)
-        else:
-            energy = np.zeros(mel.shape[0], dtype=np.float32)
+        energy = np.load(energy_path)
+        energy = (energy - self.e_mean) / (self.e_std + 1e-8)
 
-        if os.path.exists(dur_path):
-            duration = np.load(dur_path)
-        else:
-            # Fallback uniform duration if alignment is missing for a sample
-            t_mel = mel.shape[0]
-            t_phone = len(phone)
-            dur_val = max(1, t_mel // max(1, t_phone))
-            duration = np.full(t_phone, dur_val, dtype=np.int64)
-            # Adjust remainder to sum to t_mel
-            diff = t_mel - np.sum(duration)
-            if diff > 0:
-                duration[-1] += diff
-            elif diff < 0:
-                for i in range(len(duration) - 1, -1, -1):
-                    deduct = min(duration[i] - 1, -diff)
-                    duration[i] -= deduct
-                    diff += deduct
-                    if diff == 0:
-                        break
+        duration = np.load(dur_path)
 
         return {
             "id": sample_id,

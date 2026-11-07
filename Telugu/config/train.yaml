@@ -3,7 +3,7 @@
 # Adjusted for IndicTTS Telugu (~5h, 200k steps)
 
 path:
-  ckpt_path: "./checkpoints/telugu"
+  ckpt_path: "./Telugu/checkpoints"
   log_path: "./logs/telugu"
   result_path: "./output/telugu"
 

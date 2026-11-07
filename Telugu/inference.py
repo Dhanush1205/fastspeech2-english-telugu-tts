@@ -57,6 +57,12 @@ def parse_args():
 
 
 def load_model(preprocess_cfg, model_cfg, checkpoint_path, device, vocab_path=None):
+    """Loads Telugu FastSpeech 2 model from a verified trained checkpoint.
+    
+    Raises:
+        FileNotFoundError: If checkpoint file does not exist.
+        ValueError: If checkpoint format is invalid.
+    """
     if vocab_path and os.path.exists(vocab_path):
         tokenizer = TeluguTokenizer.from_vocab_file(vocab_path)
     else:
@@ -68,14 +74,29 @@ def load_model(preprocess_cfg, model_cfg, checkpoint_path, device, vocab_path=No
     vocab_size = tokenizer.vocab_size
     model = FastSpeech2(preprocess_cfg, model_cfg, vocab_size=vocab_size).to(device)
 
-    if os.path.exists(checkpoint_path):
-        logger.info(f"Loading checkpoint from: {checkpoint_path}")
-        ckpt = torch.load(checkpoint_path, map_location=device)
-        state_dict = ckpt["model"] if "model" in ckpt else ckpt
-        model.load_state_dict(state_dict)
-    else:
-        logger.warning(f"Checkpoint not found at {checkpoint_path}. Using initial weights.")
+    if not os.path.exists(checkpoint_path):
+        raise FileNotFoundError(
+            f"Checkpoint not found at '{checkpoint_path}'. "
+            f"A valid trained checkpoint is required for Telugu synthesis. "
+            f"Please train the model using Telugu/train.py or download a verified checkpoint."
+        )
 
+    logger.info(f"Loading checkpoint from: {checkpoint_path}")
+    ckpt = torch.load(checkpoint_path, map_location=device, weights_only=False)
+
+    if not isinstance(ckpt, dict):
+        raise ValueError(f"Invalid checkpoint format at {checkpoint_path}: expected dictionary.")
+
+    state_dict = ckpt.get("model", ckpt)
+    
+    required_keys = ["encoder.src_word_emb.weight", "decoder.mel_linear.weight"]
+    for k in required_keys:
+        if k not in state_dict:
+            raise ValueError(
+                f"Corrupt checkpoint at {checkpoint_path}: missing required weight key '{k}'."
+            )
+
+    model.load_state_dict(state_dict)
     model.eval()
     return model, tokenizer
 
@@ -92,7 +113,7 @@ def synthesize_sample(
 ):
     """Generates predicted mel, pitch, energy, durations from Telugu text."""
     sequence = np.array(tokenizer.text_to_sequence(text, add_eos=True, normalize=False))
-    tokens = list(text)
+    tokens = list(text) + ["<eos>"]  # Exact length alignment with sequence
 
     text_tensor = torch.from_numpy(sequence).unsqueeze(0).to(device)
     src_len = torch.tensor([len(sequence)], dtype=torch.long, device=device)
@@ -139,7 +160,35 @@ def synthesize_sample(
     }
 
 
-def invert_mel_to_audio(mel: np.ndarray, sr: int = 22050, n_fft: int = 1024, hop_length: int = 256) -> np.ndarray:
+def invert_mel_to_audio(
+    mel: np.ndarray,
+    vocoder=None,
+    device: str = "cpu",
+    sr: int = 22050,
+    n_fft: int = 1024,
+    hop_length: int = 256,
+    allow_griffin_lim: bool = True,
+) -> np.ndarray:
+    """Invert predicted mel-spectrogram to audio waveform.
+    
+    Uses HiFi-GAN vocoder if available, with Griffin-Lim phase reconstruction
+    as fallback. Never generates synthetic tone / sine-wave fallbacks.
+    
+    Raises:
+        RuntimeError: If waveform synthesis fails.
+    """
+    if vocoder is not None:
+        try:
+            mel_tensor = torch.from_numpy(mel.T).unsqueeze(0).to(device)
+            with torch.no_grad():
+                wav = vocoder(mel_tensor).squeeze().cpu().numpy()
+            return wav.astype(np.float32)
+        except Exception as e:
+            logger.warning(f"HiFi-GAN vocoder inversion failed: {e}. Attempting Griffin-Lim fallback.")
+
+    if not allow_griffin_lim:
+        raise RuntimeError("Waveform inversion failed: no vocoder provided and Griffin-Lim fallback is disallowed.")
+
     try:
         import librosa
         linear_spec = librosa.feature.inverse.mel_to_stft(
@@ -150,10 +199,13 @@ def invert_mel_to_audio(mel: np.ndarray, sr: int = 22050, n_fft: int = 1024, hop
         )
         wav = librosa.griffinlim(linear_spec, hop_length=hop_length, win_length=n_fft)
         return wav.astype(np.float32)
+    except ImportError as e:
+        raise RuntimeError(
+            f"Waveform inversion failed: 'librosa' is not installed and no functional neural vocoder was provided. "
+            f"Install librosa (`pip install librosa`) or provide a valid HiFi-GAN checkpoint to generate audio."
+        ) from e
     except Exception as e:
-        logger.warning(f"Audio inversion fallback: {e}")
-        t = np.linspace(0, len(mel) * hop_length / sr, len(mel) * hop_length)
-        return (0.1 * np.sin(2 * np.pi * 220 * t)).astype(np.float32)
+        raise RuntimeError(f"Waveform inversion failed: {e}") from e
 
 
 def main():
@@ -179,6 +231,15 @@ def main():
     vocab_file = Path(args.stats_dir) / "telugu_vocab.json"
     model, tokenizer = load_model(prep_cfg, mod_cfg, args.checkpoint, device, vocab_file)
 
+    # Load vocoder if available
+    vocoder = None
+    try:
+        from hifigan.get_vocoder import get_vocoder
+        vocoder = get_vocoder(device=device)
+        logger.info("Loaded HiFi-GAN vocoder architecture")
+    except Exception as e:
+        logger.info(f"HiFi-GAN vocoder not loaded ({e}), using algorithmic inverter")
+
     out_dir = Path(args.output_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
 
@@ -195,7 +256,7 @@ def main():
             e_control=args.e_control,
         )
 
-        wav = invert_mel_to_audio(res["mel"], sr=22050, hop_length=256)
+        wav = invert_mel_to_audio(res["mel"], vocoder=vocoder, device=device, sr=22050, hop_length=256)
         wav_path = out_dir / f"{sent_id}.wav"
         sf.write(str(wav_path), wav, 22050)
         logger.info(f"Saved audio: {wav_path} (Duration: {len(wav)/22050:.2f}s)")

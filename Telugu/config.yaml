@@ -27,17 +27,19 @@ preprocessing:
     mel_fmin: 0.0
     mel_fmax: 8000.0
   pitch:
-    feature: "phoneme_level"                   # (grapheme-level for Telugu)
+    feature: "frame_level"                     # Frame-level F0 target (expanded hidden state level)
     normalization: true
     pitch_min: 50.0                            # Hz
     pitch_max: 500.0                           # Hz
   energy:
-    feature: "phoneme_level"                   # (grapheme-level for Telugu)
+    feature: "frame_level"                     # Frame-level energy target (expanded hidden state level)
     normalization: true
   duration:
-    aligner: "ctc_segmentation"                # CTC-Segmentation with IndicWav2Vec
-    ctc_model: "ai4bharat/indicwav2vec_v1_telugu"  # HuggingFace model ID
-    # MFA is NOT used for Telugu — it does not support Telugu
+    aligner: "indicmfa"                        # Primary: IndicMFA (AI4Bharat G2G aligner)
+    indicmfa_acoustic_model: "Telugu_Acoustic_Model.zip"
+    indicmfa_dictionary: "Telugu_Dictionary_g2g.txt"
+    indicmfa_release_url: "https://github.com/AI4Bharat/IndicMFA/releases/download/Telugu"
+    ctc_fallback_model: "ai4bharat/indicwav2vec_v1_telugu"  # Fallback: CTC-Segmentation
 
 model:
   transformer:

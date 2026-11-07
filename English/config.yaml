@@ -26,12 +26,12 @@ preprocessing:
     mel_fmin: 0.0
     mel_fmax: 8000.0
   pitch:
-    feature: "phoneme_level"            # Average F0 per phoneme frame
+    feature: "frame_level"              # Frame-level F0 target (expanded hidden state level)
     normalization: true
     pitch_min: 50.0                     # Hz minimum F0
     pitch_max: 500.0                    # Hz maximum F0
   energy:
-    feature: "phoneme_level"            # Average energy per phoneme frame
+    feature: "frame_level"              # Frame-level energy target (expanded hidden state level)
     normalization: true
   duration:
     aligner: "mfa"                      # Montreal Forced Aligner

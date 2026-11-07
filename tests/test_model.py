@@ -184,6 +184,89 @@ class TestFastSpeech2(unittest.TestCase):
         # Expected upsampled length: 50 * 256 = 12800 samples
         self.assertEqual(wav.shape[2], 50 * 256)
 
+    def test_checkpoint_validation(self):
+        """Verify that load_model rejects missing and invalid checkpoints without random fallback."""
+        from English.inference import load_model as load_english_model
+        from Telugu.inference import load_model as load_telugu_model
+        import tempfile
+        import os
+
+        # Missing checkpoint must raise FileNotFoundError
+        with self.assertRaises(FileNotFoundError):
+            load_english_model(self.mock_preprocess_config, self.mock_model_config, "nonexistent_path/chkpt.pth.tar", "cpu")
+
+        with self.assertRaises(FileNotFoundError):
+            load_telugu_model(self.mock_preprocess_config, self.mock_model_config, "nonexistent_path/chkpt.pth.tar", "cpu")
+
+        # Invalid checkpoint format must raise ValueError
+        with tempfile.NamedTemporaryFile(suffix=".pth.tar", delete=False) as f:
+            invalid_path = f.name
+            torch.save({"unrelated_key": 123}, invalid_path)
+
+        try:
+            with self.assertRaises(ValueError):
+                load_english_model(self.mock_preprocess_config, self.mock_model_config, invalid_path, "cpu")
+            with self.assertRaises(ValueError):
+                load_telugu_model(self.mock_preprocess_config, self.mock_model_config, invalid_path, "cpu")
+        finally:
+            if os.path.exists(invalid_path):
+                os.remove(invalid_path)
+
+    def test_audio_inversion_no_synthetic_fallback(self):
+        """Verify audio inversion raises RuntimeError rather than generating sine waves."""
+        from English.inference import invert_mel_to_audio as invert_english_mel
+        from Telugu.inference import invert_mel_to_audio as invert_telugu_mel
+
+        dummy_mel = np.random.randn(80, 50)
+
+        # Neither vocoder nor Griffin-Lim allowed should raise RuntimeError
+        with self.assertRaises(RuntimeError):
+            invert_english_mel(dummy_mel, vocoder=None, allow_griffin_lim=False)
+
+        with self.assertRaises(RuntimeError):
+            invert_telugu_mel(dummy_mel, vocoder=None, allow_griffin_lim=False)
+
+    def test_plotting_missing_prediction_error(self):
+        """Verify that plot utilities fail cleanly when prediction or history files are missing."""
+        from utils.plot_variance import load_predictions
+        from utils.plot_losses import load_loss_history
+
+        with self.assertRaises(FileNotFoundError):
+            load_predictions("nonexistent_dir/pred.npz")
+
+        with self.assertRaises(FileNotFoundError):
+            load_loss_history("nonexistent_dir/loss_history.npz")
+
+    def test_dataset_strict_validation(self):
+        """Verify FastSpeech2Dataset raises FileNotFoundError for missing preprocessed features."""
+        import tempfile
+        import os
+        from model.dataset import FastSpeech2Dataset
+
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            manifest_path = os.path.join(tmp_dir, "train.txt")
+            with open(manifest_path, "w", encoding="utf-8") as f:
+                f.write("sample_01|dummy.wav|Hello world|speaker1\n")
+
+            prep_cfg = {
+                "dataset": "Test",
+                "path": {"preprocessed_path": tmp_dir, "raw_path": tmp_dir},
+                "preprocessing": {"audio": {"n_mel_channels": 80}},
+            }
+            train_cfg = {}
+
+            ds = FastSpeech2Dataset(
+                filename="train.txt",
+                preprocess_config=prep_cfg,
+                train_config=train_cfg,
+                language="en",
+            )
+            self.assertEqual(len(ds), 1)
+
+            # Accessing item without preprocessed mel/pitch/energy must raise FileNotFoundError
+            with self.assertRaises(FileNotFoundError):
+                _ = ds[0]
+
 
 if __name__ == "__main__":
     unittest.main()

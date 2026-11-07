@@ -3,7 +3,7 @@
 # Adjusted for Svarah dataset (~5h, reduced steps vs 900k for LJSpeech 24h)
 
 path:
-  ckpt_path: "./checkpoints/english"
+  ckpt_path: "./English/checkpoints"
   log_path: "./logs/english"
   result_path: "./output/english"
 

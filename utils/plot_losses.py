@@ -21,6 +21,17 @@ from pathlib import Path
 plt.style.use('seaborn-v0_8-whitegrid' if 'seaborn-v0_8-whitegrid' in plt.style.available else 'default')
 
 
+def load_loss_history(history_file):
+    """Loads loss history from .npz file, raising FileNotFoundError if missing."""
+    history_path = Path(history_file)
+    if not history_path.exists():
+        raise FileNotFoundError(
+            f"Training loss log '{history_path}' not found. "
+            f"Loss curves must be generated from genuine logged training steps."
+        )
+    return np.load(history_path, allow_pickle=True)
+
+
 def generate_loss_plots(results_root="Results", checkpoints_root="."):
     """Reads loss_history.npz and produces the 4 required loss plots."""
     for lang in ["English", "Telugu"]:
@@ -28,24 +39,18 @@ def generate_loss_plots(results_root="Results", checkpoints_root="."):
         res_dir = Path(results_root) / lang
         res_dir.mkdir(parents=True, exist_ok=True)
 
-        if ckpt_history.exists():
-            data = np.load(ckpt_history)
-            train_steps = data["train_steps"]
-            train_losses = data["train_losses"]
-            val_steps = data["val_steps"]
-            val_losses = data["val_losses"]
-        else:
-            # Baseline convergence curve representation following FastSpeech 2 training dynamics
-            np.random.seed(101 if lang == "English" else 202)
-            train_steps = np.arange(100, 200001, 100)
-            base_curve = 4.2 * np.exp(-train_steps / 35000.0) + 1.25
-            noise = np.random.normal(0, 0.04, size=len(train_steps))
-            train_losses = base_curve + noise
+        if not ckpt_history.exists():
+            raise FileNotFoundError(
+                f"Training loss log '{ckpt_history}' not found. "
+                f"Loss curves must be generated from genuine logged training steps. "
+                f"Run {lang}/train.py to generate genuine loss history."
+            )
 
-            val_steps = np.arange(1000, 200001, 1000)
-            val_curve = 4.1 * np.exp(-val_steps / 36000.0) + 1.30
-            val_noise = np.random.normal(0, 0.02, size=len(val_steps))
-            val_losses = val_curve + val_noise
+        data = np.load(ckpt_history, allow_pickle=True)
+        train_steps = data["train_steps"]
+        train_losses = data["train_losses"]
+        val_steps = data["val_steps"]
+        val_losses = data["val_losses"]
 
         # 1. Training Loss Plot
         fig, ax = plt.subplots(figsize=(9, 5), dpi=150)
