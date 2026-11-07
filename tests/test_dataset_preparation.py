@@ -54,5 +54,35 @@ class TestIndicTTSAudio(unittest.TestCase):
             decode_audio(audio)
 
 
+class TestSvarahAudio(unittest.TestCase):
+    def test_audio_decoder_mono(self):
+        from data_prep.prepare_svarah import extract_audio_and_sr
+
+        waveform = np.linspace(-0.4, 0.4, 16000, dtype=np.float32)
+        arr, sr = extract_audio_and_sr(MockAudioDecoder(waveform, 16000))
+        self.assertEqual(sr, 16000)
+        self.assertEqual(arr.shape, (16000,))
+        np.testing.assert_allclose(arr, waveform)
+
+    def test_demographic_fallback_is_explicitly_a_proxy(self):
+        from data_prep.prepare_svarah import extract_speaker_id
+
+        item = {
+            "native_place_state": "Telangana",
+            "native_place_district": "Hyderabad",
+            "primary_language": "Telugu",
+            "gender": "Female",
+            "age-group": "18-30",
+        }
+        proxy = extract_speaker_id(item)
+        self.assertIn("Telangana", proxy)
+        self.assertIn("Hyderabad", proxy)
+        self.assertIn("Telugu", proxy)
+        # This function can only construct a metadata group from this schema;
+        # it is not evidence of a stable source speaker identifier.
+        self.assertNotEqual(proxy, "unknown_speaker")
+
+
+
 if __name__ == "__main__":
     unittest.main()
