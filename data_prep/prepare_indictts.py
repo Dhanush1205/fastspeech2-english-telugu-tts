@@ -34,6 +34,7 @@ def parse_args():
     parser.add_argument("--target_sr", type=int, default=22050)
     parser.add_argument("--max_utterance_sec", type=float, default=12.0)
     parser.add_argument("--min_utterance_sec", type=float, default=0.5)
+    parser.add_argument("--max_samples", type=int, default=None, help="Limit number of samples for quick testing")
     return parser.parse_args()
 
 
@@ -69,6 +70,8 @@ def prepare_indictts(args):
 
     sample_idx = 0
     for item in dataset:
+        if args.max_samples and sample_idx >= args.max_samples:
+            break
         if train_sec >= target_train_sec and val_sec >= target_val_sec:
             break
 
