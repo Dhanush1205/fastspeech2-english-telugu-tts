@@ -94,14 +94,15 @@ def load_model(preprocess_cfg, model_cfg, checkpoint_path, device):
     state_dict = ckpt.get("model", ckpt)
     
     # Verify expected key components exist in state dict
-    required_keys = ["encoder.src_word_emb.weight", "decoder.mel_linear.weight"]
+    required_keys = ["encoder.src_word_emb.weight", "mel_linear.weight"]
     for k in required_keys:
         if k not in state_dict:
             raise ValueError(
                 f"Corrupt checkpoint at {checkpoint_path}: missing required weight key '{k}'."
             )
 
-    model.load_state_dict(state_dict)
+    state_dict = {k: v for k, v in state_dict.items() if not k.endswith(".pe")}
+    model.load_state_dict(state_dict, strict=False)
     model.eval()
     return model, vocab
 

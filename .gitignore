@@ -39,6 +39,7 @@ datasets/
 # English/checkpoints/   <- use Git LFS
 # Telugu/checkpoints/    <- use Git LFS
 *.pth
+*.pth.tar
 *.pt
 *.ckpt
 

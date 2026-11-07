@@ -32,19 +32,28 @@ def load_loss_history(history_file):
     return np.load(history_path, allow_pickle=True)
 
 
-def generate_loss_plots(results_root="Results", checkpoints_root="."):
-    """Reads loss_history.npz and produces the 4 required loss plots."""
-    for lang in ["English", "Telugu"]:
+import argparse
+
+def generate_loss_plots(results_root="Results", checkpoints_root=".", target_lang=None):
+    """Reads loss_history.npz and produces the required loss plots."""
+    langs = [target_lang] if target_lang else ["English", "Telugu"]
+    total_plots = 0
+
+    for lang in langs:
         ckpt_history = Path(checkpoints_root) / lang / "checkpoints" / "loss_history.npz"
         res_dir = Path(results_root) / lang
         res_dir.mkdir(parents=True, exist_ok=True)
 
         if not ckpt_history.exists():
-            raise FileNotFoundError(
-                f"Training loss log '{ckpt_history}' not found. "
-                f"Loss curves must be generated from genuine logged training steps. "
-                f"Run {lang}/train.py to generate genuine loss history."
-            )
+            if target_lang:
+                raise FileNotFoundError(
+                    f"Training loss log '{ckpt_history}' not found. "
+                    f"Loss curves must be generated from genuine logged training steps. "
+                    f"Run {lang}/train.py to generate genuine loss history."
+                )
+            else:
+                print(f"Skipping {lang} loss plots (no history yet at {ckpt_history})")
+                continue
 
         data = np.load(ckpt_history, allow_pickle=True)
         train_steps = data["train_steps"]
@@ -85,9 +94,15 @@ def generate_loss_plots(results_root="Results", checkpoints_root="."):
         plt.tight_layout()
         plt.savefig(res_dir / "validation_loss.png")
         plt.close()
+        total_plots += 2
 
-    print("Successfully generated all 4 loss plots.")
+    print(f"Successfully generated {total_plots} loss plots.")
 
 
 if __name__ == "__main__":
-    generate_loss_plots()
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--lang", type=str, default=None, choices=["English", "Telugu"])
+    parser.add_argument("--results_root", type=str, default="Results")
+    parser.add_argument("--checkpoints_root", type=str, default=".")
+    args = parser.parse_args()
+    generate_loss_plots(results_root=args.results_root, checkpoints_root=args.checkpoints_root, target_lang=args.lang)

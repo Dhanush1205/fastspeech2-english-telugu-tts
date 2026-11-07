@@ -35,7 +35,7 @@ class PositionalEncoding(nn.Module):
         pe[:, 0::2] = torch.sin(position * div_term)
         pe[:, 1::2] = torch.cos(position * div_term)
         pe = pe.unsqueeze(0)  # [1, max_len, d_model]
-        self.register_buffer("pe", pe)
+        self.register_buffer("pe", pe, persistent=False)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """
@@ -44,6 +44,17 @@ class PositionalEncoding(nn.Module):
         Returns:
             [B, T, d_model]
         """
+        if x.size(1) > self.pe.size(1):
+            d_model = self.pe.size(2)
+            new_max_len = max(x.size(1) + 1000, self.pe.size(1) * 2)
+            position = torch.arange(0, new_max_len, dtype=torch.float, device=x.device).unsqueeze(1)
+            div_term = torch.exp(
+                torch.arange(0, d_model, 2, dtype=torch.float, device=x.device) * -(np.log(10000.0) / d_model)
+            )
+            pe = torch.zeros(new_max_len, d_model, device=x.device)
+            pe[:, 0::2] = torch.sin(position * div_term)
+            pe[:, 1::2] = torch.cos(position * div_term)
+            self.pe = pe.unsqueeze(0)
         return x + self.pe[:, : x.size(1), :]
 
 

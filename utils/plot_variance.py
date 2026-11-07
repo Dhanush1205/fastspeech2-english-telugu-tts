@@ -108,9 +108,14 @@ def plot_energy(energy, title, output_path, hop_length=256, sr=22050):
     plt.close()
 
 
-def generate_all_variance_plots(results_root="Results"):
-    """Scans generated test audios and produces all 30 plots."""
-    for lang in ["English", "Telugu"]:
+import argparse
+
+def generate_all_variance_plots(results_root="Results", target_lang=None):
+    """Scans generated test audios and produces variance adaptor plots."""
+    langs = [target_lang] if target_lang else ["English", "Telugu"]
+    total_plots = 0
+
+    for lang in langs:
         pred_dir = Path(results_root) / lang / "test_generated_audios"
         plot_base = Path(results_root) / lang / "variance_adaptor_plots"
         
@@ -119,11 +124,15 @@ def generate_all_variance_plots(results_root="Results"):
         for sid in sent_ids:
             npz_file = pred_dir / f"{sid}_predictions.npz"
             if not npz_file.exists():
-                raise FileNotFoundError(
-                    f"Model prediction file '{npz_file}' not found. "
-                    f"Variance adaptor plots must be generated from genuine model predictions. "
-                    f"Run {lang}/inference.py using a trained checkpoint before plotting."
-                )
+                if target_lang:
+                    raise FileNotFoundError(
+                        f"Model prediction file '{npz_file}' not found. "
+                        f"Variance adaptor plots must be generated from genuine model predictions. "
+                        f"Run {lang}/inference.py using a trained checkpoint before plotting."
+                    )
+                else:
+                    print(f"Skipping {lang} {sid} (no predictions yet at {npz_file})")
+                    continue
 
             data = np.load(npz_file, allow_pickle=True)
             pitch = data["pitch"]
@@ -148,9 +157,14 @@ def generate_all_variance_plots(results_root="Results"):
                 title=f"{lang} Sentence {sid} - Predicted Energy Contour",
                 output_path=plot_base / "energy" / f"{sid}_energy.png",
             )
+            total_plots += 3
 
-    print("Successfully generated all 30 Variance Adaptor plots (15 English, 15 Telugu).")
+    print(f"Successfully generated {total_plots} Variance Adaptor plots.")
 
 
 if __name__ == "__main__":
-    generate_all_variance_plots()
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--lang", type=str, default=None, choices=["English", "Telugu"])
+    parser.add_argument("--results_root", type=str, default="Results")
+    args = parser.parse_args()
+    generate_all_variance_plots(results_root=args.results_root, target_lang=args.lang)

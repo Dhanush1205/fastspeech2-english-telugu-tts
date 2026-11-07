@@ -148,12 +148,20 @@ def _load_indictts_txt_manifest(manifest_path: Path, data_dir: Path) -> List[Dic
             if not line:
                 continue
             
-            # Try pipe delimiter first (file_id|text or file_id|speaker|text)
+            # Pipe delimiter: support 4-column (id|audio_path|text|speaker), 3-column, and 2-column
             if "|" in line:
                 parts = line.split("|")
-                file_id = parts[0].strip()
-                text = parts[-1].strip()
-                speaker = parts[1].strip() if len(parts) > 2 else "default"
+                if len(parts) >= 3:
+                    file_id = parts[0].strip()
+                    cand_wav = parts[1].strip()
+                    text = parts[2].strip()
+                    speaker = parts[3].strip() if len(parts) > 3 else "default"
+                    if os.path.exists(cand_wav):
+                        wav_path = cand_wav
+                elif len(parts) == 2:
+                    file_id = parts[0].strip()
+                    text = parts[1].strip()
+                    speaker = "default"
             else:
                 # Space/tab delimiter
                 parts = line.split(None, 1)
@@ -580,11 +588,30 @@ def preprocess_sample(
                 )
                 duration = compute_ctc_durations(audio_path, sample["text"], ctc_model, hop, sr)
         
-        if duration is not None:
-            dur_dir = out_dir / "duration"
-            dur_dir.mkdir(parents=True, exist_ok=True)
-            np.save(dur_dir / f"{sample_id}.npy", duration)
-            has_duration = True
+        if duration is None:
+            # Token-frame alignment fallback ensuring sum(durations) == T_mel and len(durations) == len(tokens)
+            from Telugu.text_processing import TeluguTokenizer, build_telugu_vocabulary
+            vocab_candidate = out_dir / "telugu_vocab.json"
+            if vocab_candidate.exists():
+                tok = TeluguTokenizer.from_vocab_file(str(vocab_candidate))
+            else:
+                tok = TeluguTokenizer(build_telugu_vocabulary())
+            token_ids = tok.text_to_sequence(sample["text"])
+            n_tokens = max(1, len(token_ids))
+
+            base_dur = T // n_tokens
+            rem = T % n_tokens
+            duration = np.full(n_tokens, base_dur, dtype=np.int64)
+            duration[:rem] += 1
+            duration = np.maximum(duration, 1)
+            diff = T - int(np.sum(duration))
+            if diff != 0:
+                duration[-1] += diff
+
+        dur_dir = out_dir / "duration"
+        dur_dir.mkdir(parents=True, exist_ok=True)
+        np.save(dur_dir / f"{sample_id}.npy", duration)
+        has_duration = True
         
         return {
             "id": sample_id,

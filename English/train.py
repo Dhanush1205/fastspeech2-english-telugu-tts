@@ -145,7 +145,8 @@ def load_checkpoint(model, optimizer, ckpt_path: str, restore_step: int, drive_s
 
     logger.info(f"Restoring checkpoint from step {restore_step}: {ckpt_file}")
     ckpt = torch.load(ckpt_file, map_location="cpu")
-    model.load_state_dict(ckpt["model"])
+    state_dict = {k: v for k, v in ckpt["model"].items() if not k.endswith(".pe")}
+    model.load_state_dict(state_dict, strict=False)
     optimizer.load_state_dict(ckpt["optimizer"])
     return model, optimizer
 
@@ -245,18 +246,20 @@ def train(args):
     )
 
     workers = 0 if (os.name == "nt" or device.type == "cpu") else 4
+    actual_batch_size = min(batch_size, max(1, len(train_dataset)))
+    drop_last = len(train_dataset) > actual_batch_size
     train_loader = DataLoader(
         train_dataset,
-        batch_size=batch_size,
+        batch_size=actual_batch_size,
         shuffle=True,
         collate_fn=collate_fn,
         num_workers=workers,
         pin_memory=(device.type == "cuda"),
-        drop_last=True,
+        drop_last=drop_last,
     )
     val_loader = DataLoader(
         val_dataset,
-        batch_size=batch_size,
+        batch_size=min(batch_size, max(1, len(val_dataset))),
         shuffle=False,
         collate_fn=collate_fn,
         num_workers=0 if (os.name == "nt" or device.type == "cpu") else 2,

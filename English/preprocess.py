@@ -581,11 +581,29 @@ def preprocess_sample(
             if os.path.exists(tg_path):
                 try:
                     duration = parse_textgrid_durations(tg_path, [], hop, sr)
-                    dur_dir = out_dir / "duration"
-                    dur_dir.mkdir(parents=True, exist_ok=True)
-                    np.save(dur_dir / f"{sample_id}.npy", duration)
                 except Exception as e:
                     logger.warning(f"Duration extraction failed for {sample_id}: {e}")
+
+        if duration is None:
+            # Token-frame alignment fallback ensuring sum(durations) == T_mel and len(durations) == len(tokens)
+            from English.text_processing import EnglishPhonemizer, build_english_phoneme_vocabulary
+            phonemizer = EnglishPhonemizer()
+            vocab = build_english_phoneme_vocabulary()
+            token_ids = phonemizer.text_to_sequence(sample["text"], vocab)
+            n_tokens = max(1, len(token_ids))
+
+            base_dur = T // n_tokens
+            rem = T % n_tokens
+            duration = np.full(n_tokens, base_dur, dtype=np.int64)
+            duration[:rem] += 1
+            duration = np.maximum(duration, 1)
+            diff = T - int(np.sum(duration))
+            if diff != 0:
+                duration[-1] += diff
+
+        dur_dir = out_dir / "duration"
+        dur_dir.mkdir(parents=True, exist_ok=True)
+        np.save(dur_dir / f"{sample_id}.npy", duration)
         
         return {
             "id": sample_id,
