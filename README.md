@@ -143,9 +143,7 @@ fastspeech2-english-telugu-tts/
 │           ├── pitch/            # T1_pitch.png - T4_pitch.png
 │           └── energy/           # T1_energy.png - T4_energy.png
 │
-├── Report/
-│   ├── Technical_Report.pdf      # Comprehensive 6-page research report
-│   └── generate_report.py        # PDF compilation script using ReportLab
+├── FastSpeech2_IIITH_Submission.zip # Complete deliverable bundle (Report + Audios + Plots)
 │
 ├── model/                        # Shared FastSpeech 2 neural modules
 │   ├── fastspeech2.py            # Main nn.Module
@@ -388,13 +386,14 @@ Trained model checkpoints are saved under:
 ---
 
 ## 15. Technical Report
-The complete 6-page academic technical report is available at:
-📄 **[Report/Technical_Report.pdf](Report/Technical_Report.pdf)**
+The complete 6-page academic technical report (`Technical_Report.pdf`) is submitted as a standalone document alongside the codebase in `FastSpeech2_IIITH_Submission.zip` per the IIIT Hyderabad submission guidelines.
 
-To recompile the PDF from source:
-```bash
-python Report/generate_report.py
-```
+It contains:
+- Complete theoretical background comparing autoregressive TTS and FastSpeech 2
+- Telugu Unicode NFC Grapheme & Akshara processing methodology
+- Empirical convergence tables and multi-task loss analysis
+- Acoustic evaluation across all 10 mandatory sentences (E1–E4, T1–T4)
+- 30-figure variance adaptor trajectory analysis (Duration, Pitch $F_0$, Acoustic Energy)
 
 ---
 

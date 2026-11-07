@@ -54,6 +54,8 @@ hifigan/*.pt
 # Archives and submissions
 *.zip
 *.tar.gz
+Report/
+*.pdf
 logs/
 *.log
 wandb/
