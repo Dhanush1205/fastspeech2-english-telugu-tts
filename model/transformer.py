@@ -197,3 +197,4 @@ class FFTBlock(nn.Module):
             enc_output *= non_pad_mask
 
         return enc_output, enc_slf_attn
+

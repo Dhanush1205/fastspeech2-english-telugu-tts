@@ -353,3 +353,4 @@ def build_technical_report(pdf_path="Report/Technical_Report.pdf"):
 
 if __name__ == "__main__":
     build_technical_report()
+

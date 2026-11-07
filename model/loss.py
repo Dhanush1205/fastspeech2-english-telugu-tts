@@ -135,3 +135,4 @@ class FastSpeech2Loss(nn.Module):
             pitch_loss,
             energy_loss,
         )
+

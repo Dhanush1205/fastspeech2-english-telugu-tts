@@ -41,13 +41,15 @@ logger = logging.getLogger(__name__)
 
 
 def parse_args():
+    script_dir = Path(__file__).parent
+    root_dir = script_dir.parent
     parser = argparse.ArgumentParser(description="Telugu FastSpeech 2 Inference")
-    parser.add_argument("-p", "--preprocess_config", type=str, default="config/preprocess.yaml")
-    parser.add_argument("-m", "--model_config", type=str, default="config/model.yaml")
-    parser.add_argument("-t", "--train_config", type=str, default="config/train.yaml")
-    parser.add_argument("--checkpoint", type=str, default="checkpoints/200000.pth.tar")
-    parser.add_argument("--output_dir", type=str, default="../Results/Telugu/test_generated_audios")
-    parser.add_argument("--stats_dir", type=str, default="data/preprocessed/telugu")
+    parser.add_argument("-p", "--preprocess_config", type=str, default=str(script_dir / "config" / "preprocess.yaml"))
+    parser.add_argument("-m", "--model_config", type=str, default=str(script_dir / "config" / "model.yaml"))
+    parser.add_argument("-t", "--train_config", type=str, default=str(script_dir / "config" / "train.yaml"))
+    parser.add_argument("--checkpoint", type=str, default=str(script_dir / "checkpoints" / "200000.pth.tar"))
+    parser.add_argument("--output_dir", type=str, default=str(root_dir / "Results" / "Telugu" / "test_generated_audios"))
+    parser.add_argument("--stats_dir", type=str, default=str(root_dir / "data" / "preprocessed" / "telugu"))
     parser.add_argument("--d_control", type=float, default=1.0)
     parser.add_argument("--p_control", type=float, default=1.0)
     parser.add_argument("--e_control", type=float, default=1.0)
@@ -211,3 +213,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+

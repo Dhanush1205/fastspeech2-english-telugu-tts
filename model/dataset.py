@@ -199,3 +199,4 @@ def collate_fn(batch: List[Dict[str, Any]]) -> List[Any]:
         energies,
         durations,
     ]
+

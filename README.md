@@ -373,3 +373,4 @@ python Report/generate_report.py
 - FastSpeech 2 original architecture by Ren et al. (2020).
 - Base implementation adapted from [ming024/FastSpeech2](https://github.com/ming024/FastSpeech2) under the **MIT License**.
 - Released under the **MIT License**.
+
