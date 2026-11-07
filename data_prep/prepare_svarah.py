@@ -1,27 +1,29 @@
 """
-Svarah Dataset Acquisition and Split Preparation
-=================================================
+Svarah Dataset Preparation Script for FastSpeech 2 (English)
+============================================================
 
-Downloads and prepares the Svarah Indian English dataset (ai4bharat/Svarah):
-  1. Connects to the official AI4Bharat Svarah repository on Hugging Face.
-     NOTE ON UPSTREAM SPLIT: AI4Bharat created Svarah as an ASR evaluation benchmark
-     and published the entire 9.6h corpus under a single upstream split named 'test'
-     (data/test-*.parquet). Per IIIT Hyderabad Voice AI assignment requirements,
-     this script partitions the official 9.6h corpus into independent, speaker-disjoint
-     training (~5.0h) and validation (~1.0h) subsets with zero speaker overlap.
-  2. Resamples audio to 22,050 Hz (16-bit mono PCM WAV)
-  3. Validates transcript and audio duration (0.5s - 12.0s)
-  4. Strictly excludes all assignment evaluation test utterances (E1-E4)
-  5. Implements speaker-disjoint partitioning (train_speakers ∩ val_speakers = ∅)
-  6. Writes manifests: English/data_splits/train.txt & English/data_splits/val.txt
-  7. Writes metadata: English/data_splits/split_metadata.json
+This script downloads and partitions the AI4Bharat Svarah English dataset
+into speaker-disjoint training (~5h) and validation (~1h) subsets.
+
+Official Dataset Details:
+  - Hugging Face ID: ai4bharat/Svarah
+  - Benchmark details: 9.6 hours of Indian-accented English speech from 117 speakers
+    across 65 districts in 19 states of India.
+  - Published split: ai4bharat/Svarah is published exclusively as split='test'
+    (the official ASR benchmark evaluation split).
+  - Schema:
+      * audio_filepath: Audio feature (decoded array, sampling_rate, path)
+      * duration: float64
+      * text: ground-truth English transcript string
+      * native_place_state, native_place_district, primary_language, gender, age-group,
+        highest_qualification, job_category, occupation_domain
 
 Usage:
-    # Full dataset preparation (~5h train / ~1h val)
-    python data_prep/prepare_svarah.py --output_dir data/svarah --train_hours 5.0 --val_hours 1.0
+    python prepare_svarah.py --output_dir data/svarah --splits_dir English/data_splits
+    python prepare_svarah.py --smoke_test --output_dir data/svarah_smoke --splits_dir English/data_splits
+    python prepare_svarah.py --diagnose
 
-    # Smoke test mode (10 train / 4 val independent genuine samples)
-    python data_prep/prepare_svarah.py --smoke_test --output_dir data/svarah_smoke --splits_dir English/data_splits
+Author: FastSpeech 2 English-Telugu TTS Project
 """
 
 import os
@@ -61,6 +63,7 @@ def parse_args():
     parser.add_argument("--seed", type=int, default=42, help="Random seed for deterministic split")
     parser.add_argument("--max_samples", type=int, default=None, help="Limit number of samples for quick testing")
     parser.add_argument("--smoke_test", action="store_true", help="Quick smoke test mode: downloads 10 train and 4 val speaker-disjoint genuine samples")
+    parser.add_argument("--diagnose", action="store_true", help="Print schema, keys, types, and sample data for the first 5 records without writing files")
     return parser.parse_args()
 
 
@@ -104,6 +107,95 @@ def extract_audio_and_sr(audio_data):
     return None, None
 
 
+def extract_speaker_id(item, audio_data=None):
+    """Extract or determine speaker ID from actual Svarah dataset features."""
+    # 1. Direct speaker columns
+    for spk_key in ["speaker_id", "speaker", "client_id", "spk_id", "speaker_name"]:
+        val = item.get(spk_key)
+        if val is not None and str(val).strip():
+            return str(val).strip()
+
+    # 2. Path prefix if audio has a path
+    path_val = None
+    if isinstance(audio_data, dict):
+        path_val = audio_data.get("path")
+    elif isinstance(audio_data, str):
+        path_val = audio_data
+
+    if path_val:
+        stem = Path(path_val).stem
+        parts = stem.split("_")
+        if len(parts) >= 2:
+            candidate = "_".join(parts[:-1])
+            if len(candidate) >= 3:
+                return candidate
+
+    # 3. Ground-truth demographic grouping from Svarah's 11 demographic features
+    # Svarah features: native_place_state, native_place_district, primary_language, gender, age-group
+    state = str(item.get("native_place_state") or "").strip().replace(" ", "_")
+    district = str(item.get("native_place_district") or "").strip().replace(" ", "_")
+    lang = str(item.get("primary_language") or "").strip().replace(" ", "_")
+    gender = str(item.get("gender") or "").strip().replace(" ", "_")
+    age = str(item.get("age-group") or "").strip().replace(" ", "_")
+
+    demo_parts = [p for p in [state, district, lang, gender, age] if p]
+    if demo_parts:
+        return "_".join(demo_parts)
+
+    return "unknown_speaker"
+
+
+def run_diagnostic(dataset, num_records=5):
+    """Print schema, keys, types, and sample data for the first num_records records."""
+    logger.info("=" * 70)
+    logger.info(f"SVARAH RAW RECORD SCHEMA & DIAGNOSTIC INSPECTION (First {num_records} Records)")
+    logger.info("=" * 70)
+
+    it = iter(dataset)
+    try:
+        for idx in range(1, num_records + 1):
+            item = next(it)
+            logger.info(f"\n--- [RECORD #{idx}] Raw Schema & Feature Inspection ---")
+            logger.info(f"Top-level keys ({len(item.keys())}): {list(item.keys())}")
+            for k, v in item.items():
+                if k in ["audio", "audio_filepath", "wav"]:
+                    if isinstance(v, dict):
+                        audio_info = {
+                            "keys": list(v.keys()),
+                            "has_array": ("array" in v and v["array"] is not None),
+                            "array_len": len(v["array"]) if ("array" in v and v["array"] is not None) else None,
+                            "has_bytes": ("bytes" in v and v["bytes"] is not None),
+                            "bytes_len": len(v["bytes"]) if ("bytes" in v and v["bytes"] is not None) else None,
+                            "path": v.get("path"),
+                            "sampling_rate": v.get("sampling_rate"),
+                        }
+                        logger.info(f"  * {k} (dict/Audio feature): {audio_info}")
+                    else:
+                        logger.info(f"  * {k} ({type(v).__name__}): {repr(v)[:100]}")
+                else:
+                    logger.info(f"  * {k} ({type(v).__name__}): {repr(v)[:100]}")
+
+            # Test extraction on this record
+            audio_obj = item.get("audio_filepath") or item.get("audio")
+            arr, sr = extract_audio_and_sr(audio_obj)
+            spk = extract_speaker_id(item, audio_obj)
+            txt = item.get("text") or item.get("transcription") or ""
+            dur = item.get("duration")
+            logger.info(f"  -> Extracted Text: '{txt[:60]}...' (len: {len(txt)})")
+            logger.info(f"  -> Extracted Speaker: '{spk}'")
+            logger.info(f"  -> Extracted Audio: Array={arr is not None} (len={len(arr) if arr is not None else 0}, sr={sr})")
+            logger.info(f"  -> Audio Duration: {round(len(arr)/sr, 2) if (arr is not None and sr) else dur}s (dataset duration field: {dur})")
+    finally:
+        if hasattr(it, "close"):
+            try:
+                it.close()
+            except Exception:
+                pass
+    logger.info("=" * 70)
+    logger.info("DIAGNOSTIC INSPECTION COMPLETE")
+    logger.info("=" * 70)
+
+
 def prepare_svarah(args):
     try:
         import datasets
@@ -113,26 +205,6 @@ def prepare_svarah(args):
     except ImportError as e:
         logger.error(f"Missing required library: {e}. Run: pip install datasets soundfile librosa")
         sys.exit(1)
-
-    out_dir = Path(args.output_dir)
-    wavs_dir = out_dir / "wavs"
-    wavs_dir.mkdir(parents=True, exist_ok=True)
-
-    splits_dir = Path(args.splits_dir)
-    splits_dir.mkdir(parents=True, exist_ok=True)
-
-    is_smoke = getattr(args, "smoke_test", False)
-    target_train_count = 10 if is_smoke else None
-    target_val_count = 4 if is_smoke else None
-
-    target_train_sec = args.train_hours * 3600.0
-    target_val_sec = args.val_hours * 3600.0
-
-    if is_smoke:
-        logger.info(f"[SMOKE TEST MODE] Target: {target_train_count} train samples, {target_val_count} val samples (speaker-disjoint)")
-    else:
-        logger.info(f"Target train duration: {args.train_hours:.2f}h ({target_train_sec:.0f}s)")
-        logger.info(f"Target val duration:   {args.val_hours:.2f}h ({target_val_sec:.0f}s)")
 
     hf_token = os.environ.get("HF_TOKEN")
     dataset_name = "ai4bharat/Svarah"
@@ -158,20 +230,45 @@ def prepare_svarah(args):
             f"\n{'='*70}\n"
             f"ERROR: Cannot access required dataset '{dataset_name}': {e}\n"
             f"The assignment specifically requires the AI4Bharat Svarah dataset.\n"
-            f"Svarah is a gated Hugging Face repository. To resolve access:\n"
-            f"  1. Accept terms at: https://huggingface.co/datasets/ai4bharat/Svarah\n"
-            f"  2. Create access token at: https://huggingface.co/settings/tokens\n"
-            f"  3. Set HF_TOKEN environment variable (e.g. export HF_TOKEN='hf_...').\n"
-            f"Per assignment instructions, automatic substitution of other datasets is prohibited.\n"
-            f"{'='*70}\n"
+            f"Please ensure HF_TOKEN is set with access to '{dataset_name}'.\n"
+            f"{'='*70}"
         )
         logger.error(error_msg)
-        raise RuntimeError(error_msg) from e
+        raise RuntimeError(error_msg)
 
-    train_speakers = set()
-    val_speakers = set()
+    # If --diagnose flag is set, run schema inspection and exit
+    if getattr(args, "diagnose", False):
+        run_diagnostic(dataset, num_records=5)
+        return
+
+    out_dir = Path(args.output_dir)
+    wavs_dir = out_dir / "wavs"
+    wavs_dir.mkdir(parents=True, exist_ok=True)
+
+    splits_dir = Path(args.splits_dir)
+    splits_dir.mkdir(parents=True, exist_ok=True)
+
+    is_smoke = getattr(args, "smoke_test", False)
+    target_train_count = 10 if is_smoke else None
+    target_val_count = 4 if is_smoke else None
+
+    target_train_sec = args.train_hours * 3600.0
+    target_val_sec = args.val_hours * 3600.0
+
+    if is_smoke:
+        logger.info(f"[SMOKE TEST MODE] Target: {target_train_count} train samples, {target_val_count} val samples (speaker-disjoint)")
+        # In smoke test mode, print diagnostic inspection for first 3 records first
+        run_diagnostic(dataset, num_records=3)
+        # Re-initialize dataset stream for clean sample collection
+        dataset = load_dataset(dataset_name, split=upstream_split, streaming=True, token=hf_token)
+    else:
+        logger.info(f"Target train duration: {args.train_hours:.2f}h ({target_train_sec:.0f}s)")
+        logger.info(f"Target val duration:   {args.val_hours:.2f}h ({target_val_sec:.0f}s)")
+
     train_samples = []
     val_samples = []
+    train_speakers = set()
+    val_speakers = set()
     train_sec = 0.0
     val_sec = 0.0
 
@@ -179,6 +276,7 @@ def prepare_svarah(args):
     inspected_count = 0
     max_inspections = 500 if is_smoke else 50000
 
+    logger.info("Beginning Svarah sample collection & evaluation...")
     it = iter(dataset)
     try:
         for item in it:
@@ -187,7 +285,7 @@ def prepare_svarah(args):
                 logger.warning(f"Reached inspection limit ({max_inspections} records). Stopping stream iteration.")
                 break
 
-            # Check completion criteria
+            # Termination conditions
             if is_smoke:
                 if len(train_samples) >= target_train_count and len(val_samples) >= target_val_count:
                     break
@@ -197,45 +295,63 @@ def prepare_svarah(args):
                 if train_sec >= target_train_sec and val_sec >= target_val_sec:
                     break
 
-            # 1. Audio data extraction (supports 'audio', 'audio_filepath', 'wav')
-            audio_data = item.get("audio") or item.get("audio_filepath") or item.get("wav")
+            is_early_record = inspected_count <= 10
 
-            # 2. Text transcript extraction (supports 'text', 'transcription', 'transcript', 'sentence')
-            text = str(
-                item.get("text")
-                or item.get("transcription")
-                or item.get("transcript")
-                or item.get("sentence")
-                or ""
-            ).strip()
+            # Step 1: Audio extraction (official Svarah schema uses 'audio_filepath' as Audio feature)
+            audio_data = None
+            audio_source_key = None
+            for key in ["audio_filepath", "audio", "wav", "audio_file"]:
+                if key in item and item[key] is not None:
+                    audio_data = item[key]
+                    audio_source_key = key
+                    break
 
-            if not audio_data or not text:
+            if not audio_data:
+                if is_early_record:
+                    logger.info(f"[Record #{inspected_count}] REJECTED: No audio found. Available keys: {list(item.keys())}")
                 continue
 
-            # 3. Test sentence protection (exclude any utterance matching assignment evaluation sentences)
+            # Step 2: Text transcript extraction (official Svarah schema uses 'text')
+            text = ""
+            text_source_key = None
+            for key in ["text", "transcription", "transcript", "sentence", "normalized_text"]:
+                if key in item and item[key] is not None:
+                    candidate = str(item[key]).strip()
+                    if candidate:
+                        text = candidate
+                        text_source_key = key
+                        break
+
+            if not text:
+                if is_early_record:
+                    logger.info(f"[Record #{inspected_count}] REJECTED: Empty transcript text (audio key: '{audio_source_key}')")
+                continue
+
+            # Step 3: Test pattern exclusion
             lower_text = text.lower()
             if any(pat in lower_text for pat in ASSIGNMENT_TEST_PATTERNS):
-                logger.info(f"Skipping assignment evaluation test sentence: '{text[:40]}...'")
+                if is_early_record:
+                    logger.info(f"[Record #{inspected_count}] REJECTED: Excluded assignment test pattern: '{text[:40]}...'")
                 continue
 
-            # 4. Speaker ID from metadata (with demographic grouping fallback)
-            speaker_id = str(
-                item.get("speaker_id")
-                or item.get("speaker")
-                or item.get("client_id")
-                or (f"{item.get('native_place_state')}_{item.get('gender')}" if item.get("native_place_state") else None)
-                or f"spk_{((sample_idx // 5) + 1):03d}"
-            ).strip()
+            # Step 4: Speaker ID extraction
+            speaker_id = extract_speaker_id(item, audio_data)
 
-            # 5. Speaker-Disjoint Assignment Logic
+            # Step 5: Speaker-disjoint assignment logic
             assigned_split = None
             if is_smoke:
                 if len(train_samples) < target_train_count:
                     if speaker_id not in val_speakers:
                         assigned_split = "train"
+                    else:
+                        if is_early_record:
+                            logger.info(f"[Record #{inspected_count}] REJECTED for TRAIN: Speaker '{speaker_id}' already assigned to VAL")
                 elif len(val_samples) < target_val_count:
                     if speaker_id not in train_speakers:  # ZERO speaker leakage
                         assigned_split = "val"
+                    else:
+                        if is_early_record:
+                            logger.info(f"[Record #{inspected_count}] REJECTED for VAL: Speaker '{speaker_id}' already assigned to TRAIN")
             else:
                 if train_sec < target_train_sec:
                     if speaker_id not in val_speakers:
@@ -245,31 +361,37 @@ def prepare_svarah(args):
                         assigned_split = "val"
 
             if assigned_split is None:
+                if is_early_record:
+                    logger.info(f"[Record #{inspected_count}] REJECTED: No split available (target count/hours reached or speaker collision)")
                 continue
 
-            # 6. Audio Decoding
+            # Step 6: Audio decoding
             array, sr = extract_audio_and_sr(audio_data)
             if array is None or len(array) == 0:
+                if is_early_record:
+                    logger.info(f"[Record #{inspected_count}] REJECTED: Audio decoding failed from key '{audio_source_key}' (type: {type(audio_data)})")
                 continue
 
             # Convert to mono if multi-channel
             if len(array.shape) > 1:
                 array = np.mean(array, axis=-1)
 
-            # Check duration bounds
+            # Step 7: Duration bounds
             duration = len(array) / sr
             if duration < args.min_utterance_sec or duration > args.max_utterance_sec:
+                if is_early_record:
+                    logger.info(f"[Record #{inspected_count}] REJECTED: Duration {duration:.2f}s outside bounds [{args.min_utterance_sec}s, {args.max_utterance_sec}s]")
                 continue
 
-            # Resample to target_sr if needed
+            # Record accepted!
+            sample_idx += 1
+            sid = f"english_{sample_idx:06d}"
+
+            # Save genuine audio file (resample to target_sr if needed)
             if sr != args.target_sr:
                 array = librosa.resample(array.astype(np.float32), orig_sr=sr, target_sr=args.target_sr)
                 sr = args.target_sr
 
-            sample_idx += 1
-            sid = f"english_{sample_idx:06d}"
-
-            # Save audio file
             wav_path = wavs_dir / f"{sid}.wav"
             sf.write(str(wav_path), array, sr, subtype="PCM_16")
 
@@ -290,12 +412,12 @@ def prepare_svarah(args):
                 train_speakers.add(speaker_id)
                 train_samples.append(entry)
                 train_sec += duration
-                logger.info(f"[TRAIN {len(train_samples)}/{target_train_count or '5h'}] {sid} | Speaker: {speaker_id} | Dur: {duration:.2f}s | '{text[:35]}...'")
+                logger.info(f"[TRAIN {len(train_samples):02d}/{target_train_count or '5h'}] {sid} | Spk: {speaker_id[:25]} | Dur: {duration:.2f}s | Key: '{audio_source_key}' | '{text[:35]}...'")
             else:
                 val_speakers.add(speaker_id)
                 val_samples.append(entry)
                 val_sec += duration
-                logger.info(f"[VAL {len(val_samples)}/{target_val_count or '1h'}] {sid} | Speaker: {speaker_id} | Dur: {duration:.2f}s | '{text[:35]}...'")
+                logger.info(f"[VAL   {len(val_samples):02d}/{target_val_count or '1h'}] {sid} | Spk: {speaker_id[:25]} | Dur: {duration:.2f}s | Key: '{audio_source_key}' | '{text[:35]}...'")
 
     finally:
         # Cleanly shut down streaming thread pool to prevent 'Bad file descriptor' warnings
@@ -363,13 +485,16 @@ def prepare_svarah(args):
         "train_duration_hours": round(train_sec / 3600.0, 3),
         "val_duration_hours": round(val_sec / 3600.0, 3),
         "target_sr": args.target_sr,
-        "note": "Derived from official ai4bharat/Svarah 9.6h corpus (which upstream publishes exclusively under split='test') specifically for the IIIT-H TTS assignment with zero speaker leakage and test sentence protection."
+        "sample_counts": {
+            "train": len(train_samples),
+            "val": len(val_samples),
+        },
     }
-
-    meta_file = splits_dir / "split_metadata.json"
-    with open(meta_file, "w", encoding="utf-8") as f:
+    meta_path = splits_dir / "split_metadata.json"
+    with open(meta_path, "w", encoding="utf-8") as f:
         json.dump(metadata, f, indent=2)
-    logger.info(f"Saved split metadata: {meta_file}")
+    logger.info(f"Saved split metadata: {meta_path}")
+    logger.info("=" * 70)
 
 
 if __name__ == "__main__":

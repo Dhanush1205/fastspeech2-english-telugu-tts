@@ -616,6 +616,8 @@ def run_preprocessing(args):
     if args.download_indicmfa_models:
         logger.info("Downloading official AI4Bharat IndicMFA Telugu models and dictionary...")
         download_indicmfa_models()
+        logger.info("Official IndicMFA Telugu models and dictionary downloaded successfully.")
+        return
     
     # Build/save Telugu vocabulary
     logger.info("Building Telugu vocabulary...")
