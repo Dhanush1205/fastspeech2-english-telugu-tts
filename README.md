@@ -210,7 +210,7 @@ Unlike English, Telugu is a morphologically rich Dravidian language with syllabi
 
 ```bash
 # 1. Clone repository
-git clone https://github.com/saidh/fastspeech2-english-telugu-tts.git
+git clone https://github.com/Dhanush1205/fastspeech2-english-telugu-tts.git
 %cd fastspeech2-english-telugu-tts
 
 # 2. Create virtual environment

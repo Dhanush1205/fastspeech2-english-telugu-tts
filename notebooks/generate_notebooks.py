@@ -74,7 +74,7 @@ if torch.cuda.is_available():
 print("Environment dependencies installed successfully!")
 """),
         code_cell("""# Clone or link project repository
-!git clone https://github.com/your-username/fastspeech2-english-telugu-tts.git
+!git clone https://github.com/Dhanush1205/fastspeech2-english-telugu-tts.git
 %cd fastspeech2-english-telugu-tts
 !ls -la
 """)

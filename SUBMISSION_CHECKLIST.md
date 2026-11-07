@@ -91,7 +91,8 @@ python Report/generate_report.py
 ## 5. Publishing to Public GitHub (When You Are Ready)
 
 ```bash
-git remote add origin https://github.com/<your-username>/fastspeech2-english-telugu-tts.git
+git remote add origin https://github.com/Dhanush1205/fastspeech2-english-telugu-tts.git
 git branch -M main
 git push -u origin main
 ```
+
