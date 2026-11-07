@@ -29,6 +29,7 @@ Author: FastSpeech 2 English-Telugu TTS Project
 import os
 import sys
 import io
+import hashlib
 import json
 import argparse
 import logging
@@ -217,6 +218,20 @@ def extract_speaker_id(item, audio_data=None):
         return "_".join(demo_parts)
 
     return "unknown_speaker"
+
+
+def assign_svarah_split(speaker_group: str, seed: int = 42, validation_fraction: float = 0.25) -> str:
+    """Deterministically assign an available demographic proxy group to one split.
+
+    Svarah's public schema does not expose a stable speaker ID, so this function
+    prevents overlap of the available composite demographic groups only. It
+    must not be interpreted as verified speaker-disjoint partitioning.
+    """
+    if not 0.0 < validation_fraction < 1.0:
+        raise ValueError("validation_fraction must be between 0 and 1")
+    key = f"{seed}:{speaker_group}".encode("utf-8")
+    value = int.from_bytes(hashlib.sha256(key).digest()[:8], "big") / 2**64
+    return "val" if value < validation_fraction else "train"
 
 
 def diagnose_record(idx, item):
@@ -435,12 +450,14 @@ def prepare_svarah(args):
                         if is_early_record:
                             logger.info(f"[Record #{inspected_count}] REJECTED for VAL: Speaker '{speaker_id}' already assigned to TRAIN")
             else:
-                if train_sec < target_train_sec:
-                    if speaker_id not in val_speakers:
-                        assigned_split = "train"
-                elif val_sec < target_val_sec:
-                    if speaker_id not in train_speakers:  # ZERO speaker leakage
-                        assigned_split = "val"
+                # Hash-partition metadata-derived groups before filling either
+                # duration target. Sequentially filling train first exhausted
+                # all groups and left validation at 0 hours.
+                assigned_split = assign_svarah_split(speaker_id, seed=args.seed, validation_fraction=0.25)
+                if assigned_split == "train" and train_sec >= target_train_sec:
+                    assigned_split = None
+                elif assigned_split == "val" and val_sec >= target_val_sec:
+                    assigned_split = None
 
             if assigned_split is None:
                 if is_early_record:
@@ -553,11 +570,15 @@ def prepare_svarah(args):
     metadata = {
         "dataset_source": dataset_name,
         "upstream_split": upstream_split,
-        "split_strategy": "demographic_group_disjoint_sequential",
+        "split_strategy": (
+            "demographic_group_disjoint_hash_partition_25pct_validation"
+            if not is_smoke else "demographic_group_disjoint_smoke_sample"
+        ),
         "speaker_identity_available": False,
         "speaker_disjoint": None,
         "speaker_identity_note": "The public schema does not expose a stable unique speaker ID. The partition is disjoint only by the available demographic composite proxy.",
         "random_seed": args.seed,
+        "validation_group_fraction": 0.25 if not is_smoke else None,
         "mode": "smoke_test" if is_smoke else "full_dataset",
         "train_speaker_count": len(train_speakers),
         "val_speaker_count": len(val_speakers),
