@@ -549,6 +549,7 @@ def preprocess_sample(
         np.save(out_dir / "energy" / f"{sample_id}.npy", energy)
         
         # Duration supervision is mandatory for FastSpeech 2 training.
+        from Telugu.text_processing import telugu_text_normalize
         if not mfa_dir:
             raise RuntimeError("IndicMFA TextGrid directory is required; duration targets cannot be omitted.")
         grid_candidates = list(Path(mfa_dir).rglob(f"{sample_id}.TextGrid"))
