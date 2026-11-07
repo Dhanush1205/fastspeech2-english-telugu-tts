@@ -88,3 +88,4 @@ This document breaks down the foundational speech processing and deep learning c
 > 1. **Shared Vocabulary:** Construct a unified phonemic alphabet using the International Phonetic Alphabet (IPA) or an expanded Indic phoneme set (like IndicPhones).
 > 2. **Language Embeddings:** Add a language ID embedding ($L \in \{0, 1\}$) to the text encoder output alongside positional encoding.
 > 3. **Multi-Speaker / Multi-Lingual Vocoder:** Fine-tune HiFi-GAN jointly on both Indian-accented English and Telugu datasets to eliminate acoustic disparities at language transitions.
+

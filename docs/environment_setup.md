@@ -90,3 +90,4 @@ In PyTorch 2.4+, `torch.load()` defaults to `weights_only=False` with a deprecat
 
 ### MFA / Alignment Tools on Windows
 Montreal Forced Aligner (MFA) requires Kaldi binaries which are easiest to run under Conda or Linux. For Windows or Kaggle notebooks, pre-computed alignments or HuggingFace CTC-segmentation models (`ai4bharat/indicwav2vec_v1_telugu`) avoid native binary compilation issues.
+

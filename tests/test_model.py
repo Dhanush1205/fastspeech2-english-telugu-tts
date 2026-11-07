@@ -173,5 +173,17 @@ class TestFastSpeech2(unittest.TestCase):
         self.assertEqual(mel_pred.shape[1], mel_len.item())
 
 
+    def test_hifigan_generator_forward(self):
+        from hifigan.get_vocoder import get_vocoder
+        vocoder = get_vocoder(device="cpu")
+        dummy_mel = torch.randn(1, 80, 50)
+        with torch.no_grad():
+            wav = vocoder(dummy_mel)
+        self.assertEqual(wav.shape[0], 1)
+        self.assertEqual(wav.shape[1], 1)
+        # Expected upsampled length: 50 * 256 = 12800 samples
+        self.assertEqual(wav.shape[2], 50 * 256)
+
+
 if __name__ == "__main__":
     unittest.main()
