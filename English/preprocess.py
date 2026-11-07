@@ -132,6 +132,28 @@ def _load_tsv_manifest(tsv_path: Path, data_dir: Path) -> List[Dict]:
     return samples
 
 
+def _load_pipe_manifest(manifest_path: Path) -> List[Dict]:
+    """Load pipe-separated manifest (id|audio_path|text|speaker)."""
+    samples = []
+    if not manifest_path.exists():
+        return samples
+    with open(manifest_path, "r", encoding="utf-8") as f:
+        for line in f:
+            line = line.strip()
+            if not line:
+                continue
+            parts = line.split("|")
+            if len(parts) >= 3:
+                samples.append({
+                    "id": parts[0],
+                    "audio_path": parts[1],
+                    "text": parts[2],
+                    "speaker": parts[3] if len(parts) > 3 else "unknown",
+                    "duration": 0.0,
+                })
+    return samples
+
+
 def _load_json_manifest(json_path: Path) -> List[Dict]:
     """Load from JSON manifest."""
     with open(json_path, "r", encoding="utf-8") as f:
@@ -603,14 +625,29 @@ def run_preprocessing(args):
         logger.error("No samples found! Check data directory and format.")
         sys.exit(1)
     
-    # Select train/val split
-    logger.info("Selecting train/val split...")
-    train_samples, val_samples = select_data_split(
-        samples,
-        train_hours=args.train_hours,
-        val_hours=args.val_hours,
-        seed=args.seed,
-    )
+    # Check if prepared manifests already exist (e.g. from prepare_svarah.py)
+    config_parent = Path(args.config).parent
+    lang_root = config_parent.parent if config_parent.name == "config" else config_parent
+    splits_dir = lang_root / "data_splits"
+    train_manifest = splits_dir / "train.txt"
+    val_manifest = splits_dir / "val.txt"
+
+    train_samples, val_samples = [], []
+    if train_manifest.exists() and val_manifest.exists():
+        existing_train = _load_pipe_manifest(train_manifest)
+        existing_val = _load_pipe_manifest(val_manifest)
+        if existing_train and existing_val and os.path.exists(existing_train[0]["audio_path"]):
+            logger.info(f"Reusing existing manifests from {splits_dir} ({len(existing_train)} train, {len(existing_val)} val)")
+            train_samples, val_samples = existing_train, existing_val
+
+    if not train_samples or not val_samples:
+        logger.info("Selecting train/val split...")
+        train_samples, val_samples = select_data_split(
+            samples,
+            train_hours=args.train_hours,
+            val_hours=args.val_hours,
+            seed=args.seed,
+        )
     
     # Save manifests to both data_splits and output_dir
     config_parent = Path(args.config).parent

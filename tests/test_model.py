@@ -267,6 +267,52 @@ class TestFastSpeech2(unittest.TestCase):
             with self.assertRaises(FileNotFoundError):
                 _ = ds[0]
 
+    def test_audio_decoder_extraction(self):
+        """Verify extract_audio_and_sr correctly decodes AudioDecoder objects (torchcodec / datasets 4+)."""
+        from data_prep.prepare_svarah import extract_audio_and_sr
+
+        class MockAudioSamples:
+            def __init__(self, tensor, sample_rate):
+                self.data = tensor
+                self.sample_rate = sample_rate
+
+        class MockAudioDecoder:
+            def __init__(self, tensor, sample_rate):
+                self._samples = MockAudioSamples(tensor, sample_rate)
+
+            def get_all_samples(self):
+                return self._samples
+
+        # 1. Test mono tensor [1, 16000]
+        mono_tensor = torch.randn(1, 16000)
+        mono_decoder = MockAudioDecoder(mono_tensor, 16000)
+        arr, sr = extract_audio_and_sr(mono_decoder)
+        self.assertIsNotNone(arr)
+        self.assertEqual(sr, 16000)
+        self.assertEqual(arr.shape, (16000,))
+        self.assertTrue(np.all(np.isfinite(arr)))
+
+        # 2. Test stereo tensor [2, 16000] -> converted to 1D mono
+        stereo_tensor = torch.randn(2, 16000)
+        stereo_decoder = MockAudioDecoder(stereo_tensor, 16000)
+        arr_stereo, sr_stereo = extract_audio_and_sr(stereo_decoder)
+        self.assertIsNotNone(arr_stereo)
+        self.assertEqual(sr_stereo, 16000)
+        self.assertEqual(arr_stereo.shape, (16000,))
+        self.assertTrue(np.all(np.isfinite(arr_stereo)))
+
+        # 3. Test legacy dict with 'array'
+        dict_audio = {"array": np.zeros(8000, dtype=np.float32), "sampling_rate": 8000}
+        arr_dict, sr_dict = extract_audio_and_sr(dict_audio)
+        self.assertIsNotNone(arr_dict)
+        self.assertEqual(sr_dict, 8000)
+        self.assertEqual(arr_dict.shape, (8000,))
+
+        # 4. Test None / invalid audio
+        arr_none, sr_none = extract_audio_and_sr(None)
+        self.assertIsNone(arr_none)
+        self.assertIsNone(sr_none)
+
 
 if __name__ == "__main__":
     unittest.main()

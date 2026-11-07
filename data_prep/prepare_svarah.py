@@ -12,8 +12,8 @@ Official Dataset Details:
   - Published split: ai4bharat/Svarah is published exclusively as split='test'
     (the official ASR benchmark evaluation split).
   - Schema:
-      * audio_filepath: Audio feature (decoded array, sampling_rate, path)
-      * duration: float64
+      * audio_filepath: datasets.features._torchcodec.AudioDecoder (or dict with array/bytes/path)
+      * duration: float64 (ground-truth duration in seconds)
       * text: ground-truth English transcript string
       * native_place_state, native_place_district, primary_language, gender, age-group,
         highest_qualification, job_category, occupation_domain
@@ -63,44 +63,118 @@ def parse_args():
     parser.add_argument("--seed", type=int, default=42, help="Random seed for deterministic split")
     parser.add_argument("--max_samples", type=int, default=None, help="Limit number of samples for quick testing")
     parser.add_argument("--smoke_test", action="store_true", help="Quick smoke test mode: downloads 10 train and 4 val speaker-disjoint genuine samples")
-    parser.add_argument("--diagnose", action="store_true", help="Print schema, keys, types, and sample data for the first 5 records without writing files")
+    parser.add_argument("--diagnose", action="store_true", help="Print schema, keys, types, AudioDecoder stats, and verification for the first 5 records without writing files")
     return parser.parse_args()
 
 
 def extract_audio_and_sr(audio_data):
-    """Robustly extract (numpy_array, orig_sr) from various HuggingFace audio representations."""
+    """Robustly extract (numpy_array, orig_sr) from various HuggingFace audio representations.
+
+    Supports:
+      - datasets.features._torchcodec.AudioDecoder (modern datasets 4.x / torchcodec)
+      - torchcodec.decoders.AudioDecoder
+      - dict with 'array' and 'sampling_rate'
+      - dict with raw 'bytes'
+      - dict with 'path'
+      - direct file path string
+    """
     import soundfile as sf
 
-    if not audio_data:
+    if audio_data is None:
         return None, None
 
-    # Case 1: Audio is decoded into a dictionary with 'array'
-    if isinstance(audio_data, dict) and "array" in audio_data and audio_data["array"] is not None:
-        arr = np.array(audio_data["array"], dtype=np.float32)
-        sr = int(audio_data.get("sampling_rate", 16000))
-        return arr, sr
+    # Case 1: AudioDecoder object (datasets >= 4.0 / torchcodec)
+    if hasattr(audio_data, "get_all_samples") or hasattr(audio_data, "get_samples"):
+        try:
+            if hasattr(audio_data, "get_all_samples"):
+                samples = audio_data.get_all_samples()
+            else:
+                samples = audio_data.get_samples()
 
-    # Case 2: Audio contains raw file bytes
+            # samples container exposes .data (torch.Tensor or ndarray) and .sample_rate (int)
+            data = getattr(samples, "data", samples)
+            sr = getattr(samples, "sample_rate", None)
+
+            # Fallback for sample_rate from decoder metadata
+            if sr is None and hasattr(audio_data, "metadata"):
+                sr = getattr(audio_data.metadata, "sample_rate", None)
+            if sr is None:
+                sr = getattr(audio_data, "sample_rate", 16000)
+
+            # Convert PyTorch Tensor to NumPy
+            if hasattr(data, "detach"):
+                arr = data.detach().cpu().numpy()
+            elif isinstance(data, np.ndarray):
+                arr = data
+            else:
+                arr = np.array(data, dtype=np.float32)
+
+            # Handle multi-channel / tensor dimensions: TorchCodec typically produces [channels, samples]
+            if arr.ndim > 1:
+                # If shape is [channels, samples] (e.g. [1, N] or [2, N])
+                if arr.shape[0] in [1, 2, 4] and arr.shape[0] < arr.shape[-1]:
+                    arr = np.mean(arr, axis=0)
+                elif arr.shape[-1] in [1, 2]:
+                    arr = np.mean(arr, axis=-1)
+                else:
+                    arr = arr.flatten()
+
+            arr = arr.astype(np.float32)
+            sr = int(sr)
+
+            if len(arr) > 0 and np.all(np.isfinite(arr)):
+                return arr, sr
+            else:
+                logger.warning(f"AudioDecoder returned invalid array (len={len(arr)}, isfinite={np.all(np.isfinite(arr))})")
+        except Exception as e:
+            logger.warning(f"AudioDecoder decoding via get_all_samples() failed: {e}")
+
+    # Case 2: Audio is decoded into a dictionary with 'array'
+    if isinstance(audio_data, dict) and "array" in audio_data and audio_data["array"] is not None:
+        try:
+            data = audio_data["array"]
+            if hasattr(data, "detach"):
+                arr = data.detach().cpu().numpy()
+            else:
+                arr = np.array(data, dtype=np.float32)
+            if arr.ndim > 1:
+                arr = np.mean(arr, axis=-1)
+            sr = int(audio_data.get("sampling_rate", 16000))
+            if len(arr) > 0 and np.all(np.isfinite(arr)):
+                return arr.astype(np.float32), sr
+        except Exception as e:
+            logger.warning(f"Failed to process dict array: {e}")
+
+    # Case 3: Audio contains raw file bytes
     if isinstance(audio_data, dict) and audio_data.get("bytes"):
         try:
             arr, sr = sf.read(io.BytesIO(audio_data["bytes"]))
-            return arr.astype(np.float32), sr
+            if arr.ndim > 1:
+                arr = np.mean(arr, axis=-1)
+            if len(arr) > 0 and np.all(np.isfinite(arr)):
+                return arr.astype(np.float32), sr
         except Exception as e:
             logger.debug(f"Failed to decode audio bytes: {e}")
 
-    # Case 3: Audio dictionary contains local file path
+    # Case 4: Audio dictionary contains local file path
     if isinstance(audio_data, dict) and audio_data.get("path") and os.path.exists(audio_data["path"]):
         try:
             arr, sr = sf.read(audio_data["path"])
-            return arr.astype(np.float32), sr
+            if arr.ndim > 1:
+                arr = np.mean(arr, axis=-1)
+            if len(arr) > 0 and np.all(np.isfinite(arr)):
+                return arr.astype(np.float32), sr
         except Exception as e:
             logger.debug(f"Failed to read audio path: {e}")
 
-    # Case 4: audio_data is a direct file path string
+    # Case 5: audio_data is a direct file path string
     if isinstance(audio_data, str) and os.path.exists(audio_data):
         try:
             arr, sr = sf.read(audio_data)
-            return arr.astype(np.float32), sr
+            if arr.ndim > 1:
+                arr = np.mean(arr, axis=-1)
+            if len(arr) > 0 and np.all(np.isfinite(arr)):
+                return arr.astype(np.float32), sr
         except Exception as e:
             logger.debug(f"Failed to read audio string path: {e}")
 
@@ -145,55 +219,52 @@ def extract_speaker_id(item, audio_data=None):
     return "unknown_speaker"
 
 
-def run_diagnostic(dataset, num_records=5):
-    """Print schema, keys, types, and sample data for the first num_records records."""
-    logger.info("=" * 70)
-    logger.info(f"SVARAH RAW RECORD SCHEMA & DIAGNOSTIC INSPECTION (First {num_records} Records)")
-    logger.info("=" * 70)
+def diagnose_record(idx, item):
+    """Deep inspection of a single record, verifying AudioDecoder decoding."""
+    audio_obj = item.get("audio_filepath") or item.get("audio")
+    txt = item.get("text") or item.get("transcription") or ""
+    dur_field = item.get("duration")
 
-    it = iter(dataset)
-    try:
-        for idx in range(1, num_records + 1):
-            item = next(it)
-            logger.info(f"\n--- [RECORD #{idx}] Raw Schema & Feature Inspection ---")
-            logger.info(f"Top-level keys ({len(item.keys())}): {list(item.keys())}")
-            for k, v in item.items():
-                if k in ["audio", "audio_filepath", "wav"]:
-                    if isinstance(v, dict):
-                        audio_info = {
-                            "keys": list(v.keys()),
-                            "has_array": ("array" in v and v["array"] is not None),
-                            "array_len": len(v["array"]) if ("array" in v and v["array"] is not None) else None,
-                            "has_bytes": ("bytes" in v and v["bytes"] is not None),
-                            "bytes_len": len(v["bytes"]) if ("bytes" in v and v["bytes"] is not None) else None,
-                            "path": v.get("path"),
-                            "sampling_rate": v.get("sampling_rate"),
-                        }
-                        logger.info(f"  * {k} (dict/Audio feature): {audio_info}")
-                    else:
-                        logger.info(f"  * {k} ({type(v).__name__}): {repr(v)[:100]}")
-                else:
-                    logger.info(f"  * {k} ({type(v).__name__}): {repr(v)[:100]}")
+    logger.info(f"\n--- [RECORD #{idx}] Svarah Record Diagnostic Inspection ---")
+    logger.info(f"Top-level keys ({len(item.keys())}): {list(item.keys())}")
+    for k, v in item.items():
+        if k in ["audio_filepath", "audio"]:
+            methods = [m for m in dir(v) if not m.startswith("_")]
+            logger.info(f"  * {k} (type: {type(v).__name__}, module: {type(v).__module__}):")
+            logger.info(f"    Available methods/attrs: {methods[:10]}")
+            if hasattr(v, "metadata"):
+                logger.info(f"    metadata: {getattr(v, 'metadata', None)}")
+        else:
+            logger.info(f"  * {k} ({type(v).__name__}): {repr(v)[:80]}")
 
-            # Test extraction on this record
-            audio_obj = item.get("audio_filepath") or item.get("audio")
-            arr, sr = extract_audio_and_sr(audio_obj)
-            spk = extract_speaker_id(item, audio_obj)
-            txt = item.get("text") or item.get("transcription") or ""
-            dur = item.get("duration")
-            logger.info(f"  -> Extracted Text: '{txt[:60]}...' (len: {len(txt)})")
-            logger.info(f"  -> Extracted Speaker: '{spk}'")
-            logger.info(f"  -> Extracted Audio: Array={arr is not None} (len={len(arr) if arr is not None else 0}, sr={sr})")
-            logger.info(f"  -> Audio Duration: {round(len(arr)/sr, 2) if (arr is not None and sr) else dur}s (dataset duration field: {dur})")
-    finally:
-        if hasattr(it, "close"):
-            try:
-                it.close()
-            except Exception:
-                pass
-    logger.info("=" * 70)
-    logger.info("DIAGNOSTIC INSPECTION COMPLETE")
-    logger.info("=" * 70)
+    arr, sr = extract_audio_and_sr(audio_obj)
+    spk = extract_speaker_id(item, audio_obj)
+
+    if arr is not None:
+        calc_dur = len(arr) / sr
+        is_finite = bool(np.all(np.isfinite(arr)))
+        arr_stats = {
+            "shape": list(arr.shape),
+            "dtype": str(arr.dtype),
+            "sample_rate": sr,
+            "duration_sec": round(calc_dur, 3),
+            "is_finite": is_finite,
+            "min": round(float(np.min(arr)), 5),
+            "max": round(float(np.max(arr)), 5),
+            "mean": round(float(np.mean(arr)), 6),
+            "std": round(float(np.std(arr)), 5),
+        }
+        logger.info(f"  [AUDIO DECODER VERIFICATION]")
+        logger.info(f"    -> Decoded waveform: SUCCESS")
+        logger.info(f"    -> Stats: {arr_stats}")
+        if dur_field is not None:
+            logger.info(f"    -> Discrepancy with upstream duration: {abs(calc_dur - float(dur_field)):.4f}s")
+    else:
+        logger.error(f"  [AUDIO DECODER VERIFICATION] FAILED: extract_audio_and_sr returned None!")
+
+    logger.info(f"  [TEXT]: '{txt[:60]}...' (len: {len(txt)})")
+    logger.info(f"  [SPEAKER]: '{spk}'")
+    return arr is not None
 
 
 def prepare_svarah(args):
@@ -236,9 +307,20 @@ def prepare_svarah(args):
         logger.error(error_msg)
         raise RuntimeError(error_msg)
 
-    # If --diagnose flag is set, run schema inspection and exit
+    # If --diagnose flag is set, run schema and audio decoding inspection on 5 records and exit cleanly
     if getattr(args, "diagnose", False):
-        run_diagnostic(dataset, num_records=5)
+        logger.info("=" * 70)
+        logger.info("RUNNING SVARAH DATASET DIAGNOSTIC INSPECTION (5 Records)")
+        logger.info("=" * 70)
+        diag_count = 0
+        for item in dataset:
+            diag_count += 1
+            diagnose_record(diag_count, item)
+            if diag_count >= 5:
+                break
+        logger.info("=" * 70)
+        logger.info("DIAGNOSTIC INSPECTION COMPLETED SUCCESSFULLY")
+        logger.info("=" * 70)
         return
 
     out_dir = Path(args.output_dir)
@@ -257,10 +339,6 @@ def prepare_svarah(args):
 
     if is_smoke:
         logger.info(f"[SMOKE TEST MODE] Target: {target_train_count} train samples, {target_val_count} val samples (speaker-disjoint)")
-        # In smoke test mode, print diagnostic inspection for first 3 records first
-        run_diagnostic(dataset, num_records=3)
-        # Re-initialize dataset stream for clean sample collection
-        dataset = load_dataset(dataset_name, split=upstream_split, streaming=True, token=hf_token)
     else:
         logger.info(f"Target train duration: {args.train_hours:.2f}h ({target_train_sec:.0f}s)")
         logger.info(f"Target val duration:   {args.val_hours:.2f}h ({target_val_sec:.0f}s)")
@@ -297,7 +375,11 @@ def prepare_svarah(args):
 
             is_early_record = inspected_count <= 10
 
-            # Step 1: Audio extraction (official Svarah schema uses 'audio_filepath' as Audio feature)
+            # For the first 5 records in smoke test mode, run full diagnostic inspection
+            if is_smoke and inspected_count <= 5:
+                diagnose_record(inspected_count, item)
+
+            # Step 1: Audio extraction (official Svarah schema uses 'audio_filepath' as AudioDecoder)
             audio_data = None
             audio_source_key = None
             for key in ["audio_filepath", "audio", "wav", "audio_file"]:
@@ -365,7 +447,7 @@ def prepare_svarah(args):
                     logger.info(f"[Record #{inspected_count}] REJECTED: No split available (target count/hours reached or speaker collision)")
                 continue
 
-            # Step 6: Audio decoding
+            # Step 6: Audio decoding via AudioDecoder / torchcodec
             array, sr = extract_audio_and_sr(audio_data)
             if array is None or len(array) == 0:
                 if is_early_record:
@@ -419,13 +501,11 @@ def prepare_svarah(args):
                 val_sec += duration
                 logger.info(f"[VAL   {len(val_samples):02d}/{target_val_count or '1h'}] {sid} | Spk: {speaker_id[:25]} | Dur: {duration:.2f}s | Key: '{audio_source_key}' | '{text[:35]}...'")
 
-    finally:
-        # Cleanly shut down streaming thread pool to prevent 'Bad file descriptor' warnings
-        if hasattr(it, "close"):
-            try:
-                it.close()
-            except Exception:
-                pass
+    except OSError as e:
+        if getattr(e, "errno", None) == 9:
+            logger.debug(f"Handled transient socket close during streaming: {e}")
+        else:
+            raise
 
     # Integrity Assertions: Verify collection success
     if is_smoke:

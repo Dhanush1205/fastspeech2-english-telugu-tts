@@ -644,10 +644,26 @@ def run_preprocessing(args):
     
     logger.info(f"Telugu vocab size: {len(vocab)}")
     
-    # Train/val split
-    train_samples, val_samples = select_data_split(
-        samples, args.train_hours, args.val_hours, args.seed
-    )
+    # Check if prepared manifests already exist (e.g. from prepare_indictts.py)
+    config_parent = Path(args.config).parent
+    lang_root = config_parent.parent if config_parent.name == "config" else config_parent
+    splits_dir = lang_root / "data_splits"
+    train_manifest = splits_dir / "train.txt"
+    val_manifest = splits_dir / "val.txt"
+
+    train_samples, val_samples = [], []
+    if train_manifest.exists() and val_manifest.exists():
+        existing_train = _load_indictts_txt_manifest(train_manifest, Path(args.data_dir))
+        existing_val = _load_indictts_txt_manifest(val_manifest, Path(args.data_dir))
+        if existing_train and existing_val and os.path.exists(existing_train[0]["audio_path"]):
+            logger.info(f"Reusing existing manifests from {splits_dir} ({len(existing_train)} train, {len(existing_val)} val)")
+            train_samples, val_samples = existing_train, existing_val
+
+    if not train_samples or not val_samples:
+        logger.info("Selecting train/val split...")
+        train_samples, val_samples = select_data_split(
+            samples, args.train_hours, args.val_hours, args.seed
+        )
     
     # Save manifests to both data_splits and output_dir
     config_parent = Path(args.config).parent
