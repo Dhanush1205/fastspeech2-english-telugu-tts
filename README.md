@@ -227,10 +227,10 @@ pip install -r requirements.txt
 ---
 
 ## 8. Remote GPU Execution (Kaggle / Colab)
-Because the reference FastSpeech 2 model requires GPU acceleration (16GB VRAM recommended for batch size 16), 6 dedicated Jupyter notebooks are provided under `notebooks/`:
-- Open [Kaggle Notebooks](https://www.kaggle.com/code) or [Google Colab](https://colab.research.google.com/).
-- Enable GPU under **Settings → Accelerator → GPU (T4 / P100)**.
-- Execute notebooks sequentially:
+Because the reference FastSpeech 2 model requires GPU acceleration (16GB VRAM recommended for batch size 16), an end-to-end master Colab notebook and modular notebooks are provided under `notebooks/`:
+- **Master Colab Notebook:** Open [Colab FastSpeech2 Master Notebook](https://colab.research.google.com/github/Dhanush1205/fastspeech2-english-telugu-tts/blob/main/notebooks/Colab_FastSpeech2_Master.ipynb) directly in Google Colab with free T4 GPU support.
+- Enable GPU under **Runtime → Change runtime type → T4 GPU**.
+- Or execute modular notebooks sequentially:
   1. `01_environment_setup.ipynb`
   2. `02_dataset_preparation.ipynb`
   3. `03_english_training.ipynb`
