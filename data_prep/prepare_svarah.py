@@ -338,7 +338,7 @@ def prepare_svarah(args):
     target_val_sec = args.val_hours * 3600.0
 
     if is_smoke:
-        logger.info(f"[SMOKE TEST MODE] Target: {target_train_count} train samples, {target_val_count} val samples (speaker-disjoint)")
+        logger.info(f"[SMOKE TEST MODE] Target: {target_train_count} train samples, {target_val_count} val samples (demographic-group-disjoint proxy; not verified speaker IDs)")
     else:
         logger.info(f"Target train duration: {args.train_hours:.2f}h ({target_train_sec:.0f}s)")
         logger.info(f"Target val duration:   {args.val_hours:.2f}h ({target_val_sec:.0f}s)")
@@ -516,9 +516,12 @@ def prepare_svarah(args):
                 f"Inspected {inspected_count} records."
             )
     else:
-        if len(train_samples) == 0 or len(val_samples) == 0:
+        if train_sec < target_train_sec or val_sec < target_val_sec:
             raise RuntimeError(
-                f"DATA PREPARATION FAILED: No samples collected for train ({len(train_samples)}) or val ({len(val_samples)})!"
+                "DATA PREPARATION FAILED: Requested duration targets were not met. "
+                f"Train={train_sec/3600:.3f}h/{args.train_hours:.3f}h; "
+                f"Val={val_sec/3600:.3f}h/{args.val_hours:.3f}h. "
+                "No manifests were written. Check corpus availability, filters, and --max_samples."
             )
 
     speaker_overlap = train_speakers.intersection(val_speakers)
@@ -535,7 +538,7 @@ def prepare_svarah(args):
     logger.info(f"Svarah Split Preparation Completed (Upstream split: '{upstream_split}')")
     logger.info(f"Train: {len(train_samples)} samples ({train_sec/3600:.2f}h) across {len(train_speakers)} speakers")
     logger.info(f"Val:   {len(val_samples)} samples ({val_sec/3600:.2f}h) across {len(val_speakers)} speakers")
-    logger.info(f"Speaker Overlap: {len(speaker_overlap)} (Strictly Speaker-Disjoint: True)")
+    logger.info(f"Demographic-group overlap: {len(speaker_overlap)} (proxy groups only; unique speaker identity is unavailable)")
     logger.info("=" * 70)
 
     # Write manifests
@@ -550,7 +553,10 @@ def prepare_svarah(args):
     metadata = {
         "dataset_source": dataset_name,
         "upstream_split": upstream_split,
-        "split_strategy": "speaker_disjoint_sequential",
+        "split_strategy": "demographic_group_disjoint_sequential",
+        "speaker_identity_available": False,
+        "speaker_disjoint": None,
+        "speaker_identity_note": "The public schema does not expose a stable unique speaker ID. The partition is disjoint only by the available demographic composite proxy.",
         "random_seed": args.seed,
         "mode": "smoke_test" if is_smoke else "full_dataset",
         "train_speaker_count": len(train_speakers),
