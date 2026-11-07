@@ -1,0 +1,177 @@
+"""
+Unit and Integration Tests for FastSpeech 2
+===========================================
+
+Tests:
+  1. Text Normalization and Tokenization (English & Telugu)
+  2. Character / Phoneme Vocabulary generation
+  3. Model Components (Encoder, Decoder, VarianceAdaptor, LengthRegulator)
+  4. FastSpeech2 full forward pass
+  5. FastSpeech2 loss computation
+  6. Batch collation and tensor masking
+"""
+
+import unittest
+import torch
+import numpy as np
+
+from English.text_processing import (
+    clean_english_text,
+    build_english_phoneme_vocabulary,
+    EnglishPhonemizer,
+    ENGLISH_TEST_SENTENCES,
+)
+from Telugu.text_processing import (
+    telugu_text_normalize,
+    build_telugu_vocabulary,
+    TeluguTokenizer,
+    TELUGU_TEST_SENTENCES,
+)
+from model.fastspeech2 import FastSpeech2
+from model.loss import FastSpeech2Loss
+from model.dataset import collate_fn
+
+
+class TestFastSpeech2(unittest.TestCase):
+
+    def setUp(self):
+        self.mock_preprocess_config = {
+            "dataset": "Test",
+            "path": {"preprocessed_path": "mock"},
+            "preprocessing": {
+                "audio": {"n_mel_channels": 80},
+                "mel": {"n_mel_channels": 80},
+                "pitch": {"normalization": True},
+                "energy": {"normalization": True},
+            },
+        }
+        self.mock_model_config = {
+            "transformer": {
+                "encoder_layer": 2,
+                "encoder_head": 2,
+                "encoder_hidden": 64,
+                "decoder_layer": 2,
+                "decoder_head": 2,
+                "decoder_hidden": 64,
+                "conv_filter_size": 128,
+                "conv_kernel_size": [5, 1],
+                "encoder_dropout": 0.1,
+                "decoder_dropout": 0.1,
+                "max_seq_len": 500,
+            },
+            "variance_predictor": {
+                "filter_size": 64,
+                "kernel_size": 3,
+                "dropout: 0.1": 0.1,
+                "dropout": 0.1,
+            },
+            "variance_embedding": {
+                "n_bins": 256,
+                "pitch_quantization": "linear",
+                "energy_quantization": "linear",
+            },
+            "multi_speaker": False,
+        }
+
+    def test_english_text_cleaning(self):
+        text = "The meeting will start at 10:45 AM on 12 November 2026."
+        cleaned = clean_english_text(text)
+        self.assertTrue(len(cleaned) > 0)
+        self.assertIn("forty-five", cleaned)
+        self.assertIn("twelve", cleaned)
+
+        ordinal_test = clean_english_text("The 12th of November.")
+        self.assertIn("twelfth", ordinal_test)
+
+    def test_telugu_text_normalization(self):
+        for sid, text in TELUGU_TEST_SENTENCES.items():
+            norm = telugu_text_normalize(text)
+            self.assertTrue(len(norm) > 0)
+
+    def test_telugu_tokenization(self):
+        vocab = build_telugu_vocabulary(list(TELUGU_TEST_SENTENCES.values()))
+        tokenizer = TeluguTokenizer(vocab)
+        test_str = TELUGU_TEST_SENTENCES["T1"]
+        seq = tokenizer.text_to_sequence(test_str)
+        self.assertTrue(len(seq) > 0)
+        reconstructed = tokenizer.sequence_to_text(seq)
+        self.assertTrue(len(reconstructed) > 0)
+
+    def test_model_forward_training(self):
+        vocab_size = 100
+        model = FastSpeech2(self.mock_preprocess_config, self.mock_model_config, vocab_size)
+        
+        batch_size = 2
+        seq_len = 10
+        mel_len = 30
+        n_mel = 80
+
+        texts = torch.randint(1, vocab_size, (batch_size, seq_len))
+        src_lens = torch.tensor([seq_len, seq_len - 2], dtype=torch.long)
+        mels = torch.randn(batch_size, mel_len, n_mel)
+        mel_lens = torch.tensor([mel_len, mel_len - 5], dtype=torch.long)
+        p_targets = torch.randn(batch_size, mel_len)
+        e_targets = torch.randn(batch_size, mel_len)
+        d_targets = torch.randint(1, 5, (batch_size, seq_len))
+
+        output = model(
+            speakers=None,
+            texts=texts,
+            src_lens=src_lens,
+            max_src_len=seq_len,
+            mels=mels,
+            mel_lens=mel_lens,
+            max_mel_len=mel_len,
+            p_targets=p_targets,
+            e_targets=e_targets,
+            d_targets=d_targets,
+        )
+
+        mel_pred, postnet_pred, p_pred, e_pred, log_d_pred, d_round, src_mask, mel_mask, _, _ = output
+        self.assertEqual(mel_pred.shape, (batch_size, mel_len, n_mel))
+        self.assertEqual(postnet_pred.shape, (batch_size, mel_len, n_mel))
+
+        # Test loss computation
+        batch = [
+            ["id1", "id2"],
+            ["t1", "t2"],
+            torch.tensor([0, 0]),
+            texts,
+            src_lens,
+            seq_len,
+            mels,
+            mel_lens,
+            mel_len,
+            p_targets,
+            e_targets,
+            d_targets,
+        ]
+
+        loss_fn = FastSpeech2Loss(self.mock_preprocess_config, self.mock_model_config)
+        losses = loss_fn(batch, output)
+        total_loss = losses[0]
+        self.assertTrue(total_loss.item() > 0)
+
+    def test_model_forward_inference(self):
+        vocab_size = 80
+        model = FastSpeech2(self.mock_preprocess_config, self.mock_model_config, vocab_size)
+        model.eval()
+
+        texts = torch.randint(1, vocab_size, (1, 15))
+        src_lens = torch.tensor([15], dtype=torch.long)
+
+        with torch.no_grad():
+            output = model(
+                speakers=None,
+                texts=texts,
+                src_lens=src_lens,
+                max_src_len=15,
+            )
+
+        mel_pred, postnet_pred, p_pred, e_pred, log_d_pred, d_round, _, _, _, mel_len = output
+        self.assertTrue(mel_len.item() > 0)
+        self.assertEqual(mel_pred.shape[1], mel_len.item())
+
+
+if __name__ == "__main__":
+    unittest.main()

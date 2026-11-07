@@ -1,0 +1,94 @@
+# English FastSpeech 2 Configuration
+# Based on ming024/FastSpeech2 LJSpeech config, adapted for Svarah dataset
+
+path:
+  corpus_path: "data/svarah"           # Path to raw Svarah dataset
+  lexicon_path: "english_lexicon.txt"  # CMU pronunciation dictionary
+  raw_path: "data/svarah/wavs"         # Raw WAV files
+  preprocessed_path: "data/preprocessed/english"  # Preprocessed features output
+  train_manifest: "data_splits/train.txt"  # Training file list
+  val_manifest: "data_splits/val.txt"      # Validation file list
+
+preprocessing:
+  val_size: 512                         # Number of validation utterances from manifest
+  text:
+    language: "en"
+    text_cleaners: ["english_cleaners"]
+    use_phonemes: true
+    phoneme_backend: "g2p_en"           # g2p_en library for phonemization
+  audio:
+    sampling_rate: 22050
+    max_wav_value: 32768.0
+    filter_length: 1024
+    hop_length: 256
+    win_length: 1024
+    n_mel_channels: 80
+    mel_fmin: 0.0
+    mel_fmax: 8000.0
+  pitch:
+    feature: "phoneme_level"            # Average F0 per phoneme frame
+    normalization: true
+    pitch_min: 50.0                     # Hz minimum F0
+    pitch_max: 500.0                    # Hz maximum F0
+  energy:
+    feature: "phoneme_level"            # Average energy per phoneme frame
+    normalization: true
+  duration:
+    aligner: "mfa"                      # Montreal Forced Aligner
+    mfa_model: "english_us_arpa"        # MFA English acoustic model
+    mfa_dict: "english_us_arpa"         # MFA English pronunciation dictionary
+
+model:
+  transformer:
+    encoder_layer: 4
+    encoder_head: 2
+    encoder_hidden: 256
+    encoder_dropout: 0.2
+    decoder_layer: 4
+    decoder_head: 2
+    decoder_hidden: 256
+    decoder_dropout: 0.2
+    conv_filter_size: 1024
+    conv_kernel_size: [9, 1]
+    max_seq_len: 1000
+  variance_predictor:
+    filter_size: 256
+    kernel_size: 3
+    dropout: 0.5
+  variance_embedding:
+    pitch_quantization: "linear"        # linear or log
+    energy_quantization: "linear"
+    n_bins: 256
+
+train:
+  batch_size: 16
+  batchsize_freeze_step: 0             # Steps before batch size change
+  acc_mels_steps: 1                    # Gradient accumulation steps
+  total_step: 200000
+  log_step: 100
+  synth_step: 1000
+  val_step: 1000
+  save_step: 2000
+  optimizer:
+    optimizer: "Adam"
+    betas: [0.9, 0.98]
+    eps: 1.0e-9
+    weight_decay: 0.0
+    grad_clip_thresh: 1.0
+  lr_scheduler:
+    warmup_steps: 4000
+    anneal_steps: []
+    anneal_rate: 0.3
+  loss:
+    duration_loss_weight: 1.0
+    pitch_loss_weight: 1.0
+    energy_loss_weight: 1.0
+    mel_loss_weight: 1.0
+    postnet_mel_loss_weight: 1.0
+
+vocoder:
+  model: "HiFi-GAN"
+  speaker: "universal"                 # universal / LJSpeech
+  checkpoint: "hifigan/universal/g_02500000"
+  config: "hifigan/universal/config.json"
+

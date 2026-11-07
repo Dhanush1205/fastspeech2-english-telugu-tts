@@ -1,0 +1,31 @@
+# FastSpeech 2 — English and Telugu Text-to-Speech Synthesis
+# Dependencies for Training, Preprocessing, Evaluation, and Visualisation
+
+# Core Deep Learning Framework
+torch>=2.0.0
+torchvision>=0.15.0
+torchaudio>=2.0.0
+
+# Scientific and Numerical Computing
+numpy>=1.22.0
+scipy>=1.10.0
+matplotlib>=3.7.0
+pyyaml>=6.0
+tqdm>=4.65.0
+tensorboard>=2.12.0
+
+# Audio Processing & Feature Extraction
+librosa>=0.10.0
+soundfile>=0.12.1
+pyworld>=0.3.4
+tgt>=1.4.4
+
+# Natural Language Processing & Phonemization
+g2p-en>=2.1.0
+inflect>=6.0.0
+transformers>=4.30.0
+datasets>=2.14.0
+
+# PDF Report Generation
+reportlab>=4.0.0
+pymupdf>=1.23.0

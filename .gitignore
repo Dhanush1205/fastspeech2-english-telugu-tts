@@ -1,0 +1,86 @@
+# .gitignore — FastSpeech 2 English & Telugu TTS
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+*.egg
+*.egg-info/
+dist/
+build/
+.eggs/
+
+# Virtual environments
+.venv/
+venv/
+env/
+ENV/
+
+# Jupyter
+.ipynb_checkpoints/
+*.ipynb_checkpoints
+
+# Large data files — DO NOT COMMIT
+data/
+raw_data/
+preprocessed/
+*.wav
+*.mp3
+*.flac
+*.TextGrid
+
+# Dataset contents — NEVER COMMIT
+English/data/
+Telugu/data/
+datasets/
+
+# Large model checkpoints — use Git LFS or external link
+# English/checkpoints/   <- use Git LFS
+# Telugu/checkpoints/    <- use Git LFS
+*.pth
+*.pt
+*.ckpt
+
+# Pretrained vocoders (download separately)
+hifigan/
+vocoder_checkpoints/
+
+# Logs
+logs/
+*.log
+wandb/
+runs/
+
+# OS files
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# API keys and secrets — NEVER COMMIT
+.env
+secrets.yaml
+kaggle.json
+credentials.json
+
+# Temporary files
+*.tmp
+*.bak
+scratch/
+
+# MFA alignment outputs
+TextGrids/
+mfa_output/
+
+# Processed features (large)
+mel/
+pitch/
+energy/
+duration/
+

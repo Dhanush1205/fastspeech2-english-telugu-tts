@@ -1,0 +1,27 @@
+# Telugu FastSpeech 2 — Training Configuration
+# Based on ming024/FastSpeech2 config/LJSpeech/train.yaml
+# Adjusted for IndicTTS Telugu (~5h, 200k steps)
+
+path:
+  ckpt_path: "./checkpoints/telugu"
+  log_path: "./logs/telugu"
+  result_path: "./output/telugu"
+
+optimizer:
+  batch_size: 16
+  betas: [0.9, 0.98]
+  eps: 1.0e-9
+  weight_decay: 0.0
+  grad_clip_thresh: 1.0
+  grad_acc_step: 1
+  warm_up_step: 4000
+  anneal_steps: [100000, 150000, 180000]
+  anneal_rate: 0.3
+
+step:
+  total_step: 200000
+  log_step: 100
+  synth_step: 1000
+  val_step: 1000
+  save_step: 2000
+

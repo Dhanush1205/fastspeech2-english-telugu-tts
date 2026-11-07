@@ -1,0 +1,47 @@
+# Telugu FastSpeech 2 — Preprocessing Configuration
+# Based on ming024/FastSpeech2 config/LJSpeech/preprocess.yaml
+# Adapted for IndicTTS Telugu dataset with grapheme-based input
+
+dataset: "IndicTTS_Telugu"
+
+path:
+  corpus_path: "./data/indictts_telugu"
+  # No lexicon needed — Telugu uses grapheme-based input (not phoneme-based)
+  # MFA not used — IndicMFA handles grapheme-level alignment directly
+  raw_path: "./data/indictts_telugu"
+  preprocessed_path: "./data/preprocessed/telugu"
+
+preprocessing:
+  val_size: 512
+  text:
+    # Telugu-specific cleaner: Unicode NFC normalization
+    text_cleaners: ["telugu_cleaners"]
+    language: "te"
+    # Vocabulary file created during preprocessing from corpus
+    vocab_file: "./data/preprocessed/telugu/telugu_vocab.json"
+  audio:
+    sampling_rate: 22050
+    max_wav_value: 32768.0
+  stft:
+    filter_length: 1024
+    hop_length: 256
+    win_length: 1024
+  mel:
+    n_mel_channels: 80
+    mel_fmin: 0.0
+    mel_fmax: 8000.0
+  pitch:
+    feature: "phoneme_level"      # grapheme_level for Telugu
+    normalization: true
+  energy:
+    feature: "phoneme_level"
+    normalization: true
+
+# Duration alignment tool for Telugu
+# Primary: IndicMFA (MFA-based with Telugu acoustic model from AI4Bharat)
+# Fallback: ctc_segmentation with ai4bharat/indicwav2vec_v1_telugu
+alignment:
+  tool: "indicmfa"
+  indicmfa_model: "telugu"       # Pre-trained Telugu acoustic model
+  ctc_fallback_model: "ai4bharat/indicwav2vec_v1_telugu"
+

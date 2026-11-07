@@ -1,0 +1,28 @@
+# English FastSpeech 2 — Training Configuration
+# Based on ming024/FastSpeech2 config/LJSpeech/train.yaml
+# Adjusted for Svarah dataset (~5h, reduced steps vs 900k for LJSpeech 24h)
+
+path:
+  ckpt_path: "./checkpoints/english"
+  log_path: "./logs/english"
+  result_path: "./output/english"
+
+optimizer:
+  batch_size: 16
+  betas: [0.9, 0.98]
+  eps: 1.0e-9
+  weight_decay: 0.0
+  grad_clip_thresh: 1.0
+  grad_acc_step: 1
+  warm_up_step: 4000
+  # Anneal steps adjusted proportionally from LJSpeech 900k → Svarah 200k
+  anneal_steps: [100000, 150000, 180000]
+  anneal_rate: 0.3
+
+step:
+  total_step: 200000       # Reduced from 900k (LJSpeech 24h → Svarah 5h)
+  log_step: 100
+  synth_step: 1000
+  val_step: 1000
+  save_step: 2000          # Save checkpoint every 2000 steps for recovery
+

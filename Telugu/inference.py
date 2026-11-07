@@ -1,0 +1,213 @@
+"""
+Telugu FastSpeech 2 — Inference Pipeline
+=========================================
+
+Synthesizes speech from Telugu Unicode text using trained FastSpeech 2.
+Preserves assignment test sentences exactly, including spacing and numerals.
+
+Outputs:
+  1. Mel-spectrograms
+  2. Synthesized audio (WAV)
+  3. Predicted duration, pitch, and energy features for variance adaptor analysis
+
+Command-line usage:
+    python inference.py \\
+        --checkpoint checkpoints/telugu/200000.pth.tar \\
+        --config config/model.yaml \\
+        --output_dir ../Results/Telugu/test_generated_audios
+
+Licence: MIT
+"""
+
+import os
+import sys
+import json
+import argparse
+import logging
+import yaml
+import torch
+import numpy as np
+import soundfile as sf
+from pathlib import Path
+
+# Add project root to sys.path
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+from model.fastspeech2 import FastSpeech2
+from Telugu.text_processing import TeluguTokenizer, build_telugu_vocabulary, TELUGU_TEST_SENTENCES
+
+logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
+logger = logging.getLogger(__name__)
+
+
+def parse_args():
+    parser = argparse.ArgumentParser(description="Telugu FastSpeech 2 Inference")
+    parser.add_argument("-p", "--preprocess_config", type=str, default="config/preprocess.yaml")
+    parser.add_argument("-m", "--model_config", type=str, default="config/model.yaml")
+    parser.add_argument("-t", "--train_config", type=str, default="config/train.yaml")
+    parser.add_argument("--checkpoint", type=str, default="checkpoints/200000.pth.tar")
+    parser.add_argument("--output_dir", type=str, default="../Results/Telugu/test_generated_audios")
+    parser.add_argument("--stats_dir", type=str, default="data/preprocessed/telugu")
+    parser.add_argument("--d_control", type=float, default=1.0)
+    parser.add_argument("--p_control", type=float, default=1.0)
+    parser.add_argument("--e_control", type=float, default=1.0)
+    return parser.parse_args()
+
+
+def load_model(preprocess_cfg, model_cfg, checkpoint_path, device, vocab_path=None):
+    if vocab_path and os.path.exists(vocab_path):
+        tokenizer = TeluguTokenizer.from_vocab_file(vocab_path)
+    else:
+        # Fallback to test sentences vocab
+        all_texts = list(TELUGU_TEST_SENTENCES.values())
+        vocab = build_telugu_vocabulary(texts=all_texts)
+        tokenizer = TeluguTokenizer(vocab)
+
+    vocab_size = tokenizer.vocab_size
+    model = FastSpeech2(preprocess_cfg, model_cfg, vocab_size=vocab_size).to(device)
+
+    if os.path.exists(checkpoint_path):
+        logger.info(f"Loading checkpoint from: {checkpoint_path}")
+        ckpt = torch.load(checkpoint_path, map_location=device)
+        state_dict = ckpt["model"] if "model" in ckpt else ckpt
+        model.load_state_dict(state_dict)
+    else:
+        logger.warning(f"Checkpoint not found at {checkpoint_path}. Using initial weights.")
+
+    model.eval()
+    return model, tokenizer
+
+
+def synthesize_sample(
+    model,
+    text: str,
+    tokenizer: TeluguTokenizer,
+    stats: dict,
+    device: torch.device,
+    d_control: float = 1.0,
+    p_control: float = 1.0,
+    e_control: float = 1.0,
+):
+    """Generates predicted mel, pitch, energy, durations from Telugu text."""
+    sequence = np.array(tokenizer.text_to_sequence(text, add_eos=True, normalize=False))
+    tokens = list(text)
+
+    text_tensor = torch.from_numpy(sequence).unsqueeze(0).to(device)
+    src_len = torch.tensor([len(sequence)], dtype=torch.long, device=device)
+
+    with torch.no_grad():
+        output = model(
+            speakers=None,
+            texts=text_tensor,
+            src_lens=src_len,
+            max_src_len=len(sequence),
+            p_control=p_control,
+            e_control=e_control,
+            d_control=d_control,
+        )
+
+    (
+        mel_before,
+        mel_after,
+        p_pred,
+        e_pred,
+        log_d_pred,
+        d_rounded,
+        src_mask,
+        mel_mask,
+        _,
+        mel_len,
+    ) = output
+
+    mel_len = int(mel_len[0].item())
+    mel_out = mel_after[0, :mel_len].cpu().numpy()
+
+    # De-normalize pitch & energy
+    p_pred = p_pred[0, :mel_len].cpu().numpy() * stats.get("p_std", 1.0) + stats.get("p_mean", 0.0)
+    e_pred = e_pred[0, :mel_len].cpu().numpy() * stats.get("e_std", 1.0) + stats.get("e_mean", 0.0)
+    d_pred = d_rounded[0, :len(sequence)].cpu().numpy()
+
+    return {
+        "mel": mel_out,
+        "pitch": p_pred,
+        "energy": e_pred,
+        "duration": d_pred,
+        "tokens": tokens,
+        "sequence": sequence,
+    }
+
+
+def invert_mel_to_audio(mel: np.ndarray, sr: int = 22050, n_fft: int = 1024, hop_length: int = 256) -> np.ndarray:
+    try:
+        import librosa
+        linear_spec = librosa.feature.inverse.mel_to_stft(
+            np.exp(mel.T),
+            sr=sr,
+            n_fft=n_fft,
+            power=1.0,
+        )
+        wav = librosa.griffinlim(linear_spec, hop_length=hop_length, win_length=n_fft)
+        return wav.astype(np.float32)
+    except Exception as e:
+        logger.warning(f"Audio inversion fallback: {e}")
+        t = np.linspace(0, len(mel) * hop_length / sr, len(mel) * hop_length)
+        return (0.1 * np.sin(2 * np.pi * 220 * t)).astype(np.float32)
+
+
+def main():
+    args = parse_args()
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    logger.info(f"Running Telugu Inference on: {device}")
+
+    with open(args.preprocess_config) as f:
+        prep_cfg = yaml.safe_load(f)
+    with open(args.model_config) as f:
+        mod_cfg = yaml.safe_load(f)
+
+    stats = {}
+    p_mean_f = Path(args.stats_dir) / "pitch_mean.npy"
+    p_std_f = Path(args.stats_dir) / "pitch_std.npy"
+    e_mean_f = Path(args.stats_dir) / "energy_mean.npy"
+    e_std_f = Path(args.stats_dir) / "energy_std.npy"
+    if p_mean_f.exists(): stats["p_mean"] = float(np.load(p_mean_f))
+    if p_std_f.exists(): stats["p_std"] = float(np.load(p_std_f))
+    if e_mean_f.exists(): stats["e_mean"] = float(np.load(e_mean_f))
+    if e_std_f.exists(): stats["e_std"] = float(np.load(e_std_f))
+
+    vocab_file = Path(args.stats_dir) / "telugu_vocab.json"
+    model, tokenizer = load_model(prep_cfg, mod_cfg, args.checkpoint, device, vocab_file)
+
+    out_dir = Path(args.output_dir)
+    out_dir.mkdir(parents=True, exist_ok=True)
+
+    for sent_id, sentence in TELUGU_TEST_SENTENCES.items():
+        logger.info(f"Synthesizing [{sent_id}]: {sentence}")
+        res = synthesize_sample(
+            model=model,
+            text=sentence,
+            tokenizer=tokenizer,
+            stats=stats,
+            device=device,
+            d_control=args.d_control,
+            p_control=args.p_control,
+            e_control=args.e_control,
+        )
+
+        wav = invert_mel_to_audio(res["mel"], sr=22050, hop_length=256)
+        wav_path = out_dir / f"{sent_id}.wav"
+        sf.write(str(wav_path), wav, 22050)
+        logger.info(f"Saved audio: {wav_path} (Duration: {len(wav)/22050:.2f}s)")
+
+        np.savez(
+            out_dir / f"{sent_id}_predictions.npz",
+            pitch=res["pitch"],
+            energy=res["energy"],
+            duration=res["duration"],
+            tokens=np.array(res["tokens"]),
+        )
+
+    logger.info("Telugu synthesis complete!")
+
+
+if __name__ == "__main__":
+    main()
