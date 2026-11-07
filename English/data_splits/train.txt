@@ -1,0 +1,10 @@
+english_000001|data/svarah_smoke/wavs/english_000001.wav|Our district Hasana was the land of the great Hoysala dynasty who ruled over this region from 11th to 14th century CE.|281474976884635_f3269_chunk
+english_000002|data/svarah_smoke/wavs/english_000002.wav|There is a gradual shift in the mentality|281474976885801_f2235_chunk
+english_000003|data/svarah_smoke/wavs/english_000003.wav|Nipah virus belongs to  the|281474976901104_f2909_chunk
+english_000004|data/svarah_smoke/wavs/english_000004.wav|How much money is left in my Arunachal Pradesh Rural Bank account?|281474976888137_f2862_chunk
+english_000005|data/svarah_smoke/wavs/english_000005.wav|Govinda has received 12 Filmfare Award nominations and 4 Zee Cine Awards.|281474976897257_f2902_chunk
+english_000006|data/svarah_smoke/wavs/english_000006.wav|There are many big rivers|281474976897459_f2145_chunk
+english_000007|data/svarah_smoke/wavs/english_000007.wav|where it is joined by other branches to form the Brahmaputra|281474976893913_f2002_chunk
+english_000008|data/svarah_smoke/wavs/english_000008.wav|There have been many attempts recently to make sure that the people maintain their|281474976887171_f3278_chunk
+english_000009|data/svarah_smoke/wavs/english_000009.wav|Jammu, Samba, Kathua, Rajouri, Poonch|281474976889893_f2012_chunk
+english_000010|data/svarah_smoke/wavs/english_000010.wav|Among the poets, I remember William Wordsworth, T.S.|281474976888630_f3289_chunk

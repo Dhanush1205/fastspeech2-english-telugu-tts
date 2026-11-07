@@ -1,0 +1,39 @@
+{
+  "dataset_source": "ai4bharat/Svarah",
+  "upstream_split": "test",
+  "split_strategy": "speaker_disjoint_sequential",
+  "random_seed": 42,
+  "mode": "smoke_test",
+  "train_speaker_count": 10,
+  "val_speaker_count": 4,
+  "speaker_overlap_count": 0,
+  "train_speakers": [
+    "281474976884635_f3269_chunk",
+    "281474976885801_f2235_chunk",
+    "281474976887171_f3278_chunk",
+    "281474976888137_f2862_chunk",
+    "281474976888630_f3289_chunk",
+    "281474976889893_f2012_chunk",
+    "281474976893913_f2002_chunk",
+    "281474976897257_f2902_chunk",
+    "281474976897459_f2145_chunk",
+    "281474976901104_f2909_chunk"
+  ],
+  "val_speakers": [
+    "281474976884131_f3182_chunk",
+    "281474976888910_f3173_chunk",
+    "281474976893178_f1746_chunk",
+    "281474976901801_f1956_chunk"
+  ],
+  "train_sample_count": 10,
+  "val_sample_count": 4,
+  "train_duration_sec": 49.86,
+  "val_duration_sec": 23.63,
+  "train_duration_hours": 0.014,
+  "val_duration_hours": 0.007,
+  "target_sr": 22050,
+  "sample_counts": {
+    "train": 10,
+    "val": 4
+  }
+}

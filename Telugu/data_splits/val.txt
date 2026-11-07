@@ -1,0 +1,4 @@
+telugu_000052|data\indictts_smoke\wavs\telugu_000052.wav|ఆవుతో అడావుడి.|telugu_speaker
+telugu_000060|data\indictts_smoke\wavs\telugu_000060.wav|ఏదీ నువ్వు కాస్త సహాయంచెయ్యి తోక పట్టుకు లాగు అన్నది ఆవు.|telugu_speaker
+telugu_000062|data\indictts_smoke\wavs\telugu_000062.wav|ఆవు అత్తా ఏమిటి అడావుడి అని అడిగింది కుందేలు.|telugu_speaker
+telugu_000065|data\indictts_smoke\wavs\telugu_000065.wav|వంశ గౌరవం.|telugu_speaker

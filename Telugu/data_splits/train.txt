@@ -1,0 +1,10 @@
+telugu_000001|data\indictts_smoke\wavs\telugu_000001.wav|నరకవాసి.|telugu_speaker
+telugu_000005|data\indictts_smoke\wavs\telugu_000005.wav|ఆయనను ఇక్కడికి తీసుకురావటం దేనికమ్మా నా కాయనతో పనిలేదు అన్నాడు మిత్రవిందకుడు.|telugu_speaker
+telugu_000019|data\indictts_smoke\wavs\telugu_000019.wav|బాబూ ఇది పద్మం కాదు అసిధారా చక్రం అన్నాడు నరకవాసి.|telugu_speaker
+telugu_000020|data\indictts_smoke\wavs\telugu_000020.wav|చూశావా నా కివ్వటం ఇష్టంలేక ఆ మాట అంటున్నావు అన్నాడు మిత్రవిందకుడు.|telugu_speaker
+telugu_000024|data\indictts_smoke\wavs\telugu_000024.wav|అప్పుడు ఇంద్రుడు మిత్రవిందకుడికి ఈ విధంగా, జవాబు చెప్పాడు.|telugu_speaker
+telugu_000027|data\indictts_smoke\wavs\telugu_000027.wav|స్వర్ణ కారుడు.|telugu_speaker
+telugu_000031|data\indictts_smoke\wavs\telugu_000031.wav|బాబు చంపేశారు అంటూ ధర్మ గుప్తుడు ఆ మనిషి కేసి వెళ్ళాడు.|telugu_speaker
+telugu_000034|data\indictts_smoke\wavs\telugu_000034.wav|దొంగలు తల పగలగొట్టారు అంటూ ధర్మగుప్తుడు ప్రాణాలు వదిలాడు.|telugu_speaker
+telugu_000045|data\indictts_smoke\wavs\telugu_000045.wav|భార్యకు తన భర్త ఇంకో పెళ్ళి చేసుకోబోతున్నాడని తెలిసింది తన భర్త ఎదుట ఏడిచి ఈ పెళ్ళి జరగటానికి వీల్లేదన్నది.|telugu_speaker
+telugu_000046|data\indictts_smoke\wavs\telugu_000046.wav|నీకు వచ్చిన లోటేమిటి అన్ని ఏర్పాట్లు అయ్యాక పెళ్ళి ఎట్లా ఆగుతుంది నన్ను వేధించకు అన్నాడు లోహితుడు.|telugu_speaker

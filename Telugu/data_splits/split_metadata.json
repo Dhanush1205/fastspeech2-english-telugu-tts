@@ -1,0 +1,19 @@
+{
+  "dataset_source": "SPRINGLab/IndicTTS_Telugu",
+  "upstream_split": "train",
+  "split_strategy": "deterministic_sequential",
+  "mode": "smoke_test",
+  "train_sample_count": 10,
+  "val_sample_count": 4,
+  "train_speakers": [
+    "telugu_speaker"
+  ],
+  "val_speakers": [
+    "telugu_speaker"
+  ],
+  "train_duration_sec": 69.47,
+  "val_duration_sec": 16.97,
+  "train_duration_hours": 0.019,
+  "val_duration_hours": 0.005,
+  "target_sr": 22050
+}

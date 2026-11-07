@@ -1,0 +1,4 @@
+english_000011|data/svarah_smoke/wavs/english_000011.wav|What are the main social welfare and development programs and initiatives in your district?|281474976901801_f1956_chunk
+english_000012|data/svarah_smoke/wavs/english_000012.wav|normal competitions what we have.|281474976884131_f3182_chunk
+english_000013|data/svarah_smoke/wavs/english_000013.wav|what is an usual word and what is unusual words and phrases|281474976893178_f1746_chunk
+english_000014|data/svarah_smoke/wavs/english_000014.wav|see this track as my professionalism but I used to manage some time in writing as my|281474976888910_f3173_chunk
