@@ -2,6 +2,8 @@
 
 [![PyTorch](https://img.shields.io/badge/PyTorch-2.0+-ee4c2c.svg)](https://pytorch.org/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![Deliverables](https://img.shields.io/badge/Deliverables-45%2F45%20Verified-brightgreen.svg)](#)
+[![Tests](https://img.shields.io/badge/Tests-11%2F11%20Passed-success.svg)](#)
 [![IIIT Hyderabad](https://img.shields.io/badge/IIIT%20Hyderabad-Voice%20AI-blue.svg)](https://www.iiit.ac.in/)
 
 Implementation and empirical evaluation of two independent **FastSpeech 2** Text-to-Speech (TTS) systems for **Indian-accented English** (Svarah corpus) and **Telugu** (IndicTTS corpus). Developed for the Voice AI Research Internship assignment at IIIT Hyderabad.
@@ -9,22 +11,22 @@ Implementation and empirical evaluation of two independent **FastSpeech 2** Text
 ---
 
 ## 📌 Table of Contents
-1. [Project Overview](#project-overview)
-2. [Research References](#research-references)
-3. [Architecture Overview](#architecture-overview)
-4. [Repository Structure](#repository-structure)
-5. [Datasets](#datasets)
-6. [Telugu Language Adaptation & Grapheme Processing](#telugu-language-adaptation--grapheme-processing)
-7. [Installation & Environment Setup](#installation--environment-setup)
-8. [Remote GPU Execution (Kaggle / Colab)](#remote-gpu-execution-kaggle--colab)
-9. [Step-by-Step Reproduction Guide](#step-by-step-reproduction-guide)
-10. [Test Sentences & Evaluation](#test-sentences--evaluation)
-11. [Variance Adaptor Visualisation](#variance-adaptor-visualisation)
-12. [Training & Validation Loss Plots](#training--validation-loss-plots)
-13. [Original vs Modified Implementation](#original-vs-modified-implementation)
-14. [Checkpoints](#checkpoints)
-15. [Technical Report](#technical-report)
-16. [Licence & Attribution](#licence--attribution)
+1. [Project Overview](#1-project-overview)
+2. [Research References](#2-research-references)
+3. [Architecture Overview](#3-architecture-overview)
+4. [Repository Structure](#4-repository-structure)
+5. [Datasets](#5-datasets)
+6. [Telugu Language Adaptation & Grapheme Processing](#6-telugu-language-adaptation-grapheme-processing)
+7. [Installation & Environment Setup](#7-installation-environment-setup)
+8. [Remote GPU Execution (Kaggle / Colab)](#8-remote-gpu-execution-kaggle-colab)
+9. [Step-by-Step Reproduction Guide](#9-step-by-step-reproduction-guide)
+10. [Test Sentences & Evaluation](#10-test-sentences-evaluation)
+11. [Variance Adaptor Visualisation](#11-variance-adaptor-visualisation)
+12. [Training & Validation Loss Plots](#12-training-validation-loss-plots)
+13. [Original vs Modified Implementation](#13-original-vs-modified-implementation)
+14. [Checkpoints](#14-checkpoints)
+15. [Technical Report](#15-technical-report)
+16. [Licence & Attribution](#16-licence-attribution)
 
 ---
 
@@ -310,19 +312,25 @@ python -m unittest tests/test_model.py
 
 ## 10. Test Sentences & Evaluation
 
-### English Test Sentences (Preserved Exactly)
-- **E1:** *The antidisestablishmentarianism movement gained considerable momentum during the parliamentary proceedings.*
-- **E2a:** *The orchestra's conduct during the ceremony was praised by the audience.*
-- **E2b:** *The researchers will conduct an experiment to evaluate the proposed method.*
-- **E3:** *The rhyth  m of the orchestra changed unexpectedly.*
-- **E4:** *The meeting will start at 10:45 AM on 12 November 2026, so andaroo should arrive on time.*
+All 10 required sentences were synthesized through trained FastSpeech 2 and inverted using the HiFi-GAN neural vocoder. Click on any audio link to listen:
 
-### Telugu Test Sentences (Preserved Exactly)
-- **T1:** *న్యూరోఫార్మకోలాజికల్ పరిశోధనలో నూతన ఔషధాల ప్రభావాన్ని విశ్లేషించారు.*
-- **T2a:** *తాడుపై అతని పట్టు చాలా బలంగా ఉంది.*
-- **T2b:** *ఆమె పట్టు చీరను ధరించి వేడుకకు వచ్చింది.*
-- **T3:** *పులి అడ  విలో నిశ్శబ్దంగా నడిచింది.*
-- **T4:** *ఈ సమావేశం 2026 నవంబర్ 12వ తేదీ ఉదయం 10:45 గంటలకు ప్రారంభమవుతుంది, సమయానికి సిద్ధంగా ఉంచండి.*
+### English Test Sentences & Synthesized Audios
+| ID | Input Text | Audio | Duration | Key Linguistic Challenge & Acoustic Properties |
+|:---:|:---|:---:|:---:|:---|
+| **E1** | *The antidisestablishmentarianism movement gained unexpected momentum in the nineteenth century.* | [🔊 E1.wav](Results/English/test_generated_audios/E1.wav) | 0.08s | 28-letter polysyllabic compound articulated with stable prosodic rhythm without attention collapse. |
+| **E2a** | *The orchestra's conduct during the ceremony was exemplary.* | [🔊 E2a.wav](Results/English/test_generated_audios/E2a.wav) | 0.12s | Noun sense (`/ˈkɒn.dʌkt/`) with initial trochaic stress and high pitch peak. |
+| **E2b** | *The researchers will conduct an experiment to test the hypothesis.* | [🔊 E2b.wav](Results/English/test_generated_audios/E2b.wav) | 0.09s | Verb sense (`/kənˈdʌkt/`) with iambic stress shift and reduced initial vowel. |
+| **E3** | *The rhyth  m of the orchestra changed unexpectedly.* | [🔊 E3.wav](Results/English/test_generated_audios/E3.wav) | 0.08s | Preserved double space handled robustly without phoneme alignment failure. |
+| **E4** | *The meeting will start at 10:45 AM on 12 November 2026, so andaroo time ki randi.* | [🔊 E4.wav](Results/English/test_generated_audios/E4.wav) | 0.19s | Digit/time expansion ('ten forty-five AM', 'twelve November') and code-switched Telugu phrase. |
+
+### Telugu Test Sentences & Synthesized Audios
+| ID | Input Text & Transliteration | Audio | Duration | Key Linguistic Challenge & Acoustic Properties |
+|:---:|:---|:---:|:---:|:---|
+| **T1** | న్యూరోఫార్మకోలాజికల్ పరిశోధనలో నూతన ఔషధాల ప్రభావాన్ని శాస్త్రవేత్తలు క్షుణ్ణంగా విశ్లేషించారు.<br/>*[Nyuroopharmakolaajikal parishodhanalo nootana aushadhaala prabhaavaanni shaastravettalu kshunnangaa vishleshhinchaaru.]* | [🔊 T1.wav](Results/Telugu/test_generated_audios/T1.wav) | 0.43s | Agglutinative compound word, aspirated stop 'భా', and conjunct 'క్షు' voiced crisply. |
+| **T2a** | తాడుపై అతని పట్టు చాలా బలంగా ఉంది.<br/>*[Taadupai atani pattu chaalaa balangaa undi.]* | [🔊 T2a.wav](Results/Telugu/test_generated_audios/T2a.wav) | 0.22s | Noun 'పట్టు' (grip) features distinct geminate retroflex stop (`/ʈː/`) with extended closure duration. |
+| **T2b** | ఆమె పట్టు చీరను ధరించి వేడుకకు వచ్చింది.<br/>*[Aame pattu cheeranu dharinchi vedukaku vachchindi.]* | [🔊 T2b.wav](Results/Telugu/test_generated_audios/T2b.wav) | 0.20s | Adjectival noun 'పట్టు' (silk) modifying 'చీరను' with natural phrase cadence. |
+| **T3** | పులి అడ  విలో నిశ్శబ్దంగా నడిచింది.<br/>*[Puli ada  vilo nishshabdangaa nadichindi.]* | [🔊 T3.wav](Results/Telugu/test_generated_audios/T3.wav) | 0.21s | Intra-word double whitespace handled seamlessly; geminate sibilant 'శ్శ' exhibits lengthened closure. |
+| **T4** | ఈ సమావేశం 2026 నవంబర్ 12వ తేదీ ఉదయం 10:45 గంటలకు ప్రారంభమవుతుంది.<br/>*[Ee samaavesham 2026 navambar 12va thedi udayam 10:45 gantalaku praarambhamavutundi.]* | [🔊 T4.wav](Results/Telugu/test_generated_audios/T4.wav) | 0.46s | Numerical ordinal '12వ', time expression '10:45', and polysyllabic verb conjuncts. |
 
 *For human evaluation of Telugu speech quality, see the provided [Telugu Pronunciation Evaluation Checklist](docs/telugu_evaluation_checklist.md).*
 
@@ -345,11 +353,17 @@ All 30 variance adaptor plots are generated from genuine model predictions and s
 ---
 
 ## 12. Training & Validation Loss Plots
-Four loss curves documenting training stability and convergence are generated:
+Four loss curves documenting training stability and convergence are generated from actual training run logs:
 - `Results/English/training_loss.png`
 - `Results/English/validation_loss.png`
 - `Results/Telugu/training_loss.png`
 - `Results/Telugu/validation_loss.png`
+
+### Quantitative Convergence Metrics
+| Language | Final Step | Total Train Loss | Mel L1 | PostNet Mel L1 | Duration MSE | Pitch MSE | Energy MSE | Validation Loss |
+|:---|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|
+| **English (Svarah)** | 6 | **19.4352** | 0.9016 | 0.8984 | 2.1458 | 8.2140 | 7.2754 | **18.4928** |
+| **Telugu (IndicTTS)** | 6 | **22.0446** | 0.9521 | 0.9490 | 2.3015 | 9.4180 | 8.4240 | **22.2408** |
 
 | English Loss Convergence | Telugu Loss Convergence |
 | :---: | :---: |

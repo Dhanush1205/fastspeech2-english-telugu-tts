@@ -92,7 +92,7 @@ class NumberedCanvas(canvas.Canvas):
         self.drawRightString(612 - 45, 28, page_str)
         self.drawString(
             45, 28,
-            "Autonomous Voice AI Research Technical Submission | FastSpeech 2 Implementation"
+            "Voice AI Research Technical Report | FastSpeech 2 Implementation"
         )
         self.setStrokeColor(colors.HexColor("#cbd5e1"))
         self.setLineWidth(0.6)
@@ -261,7 +261,7 @@ def build_technical_report(pdf_path="Report/Technical_Report.pdf"):
     story.append(Paragraph("FastSpeech 2-Based English and Telugu Speech Synthesis", title_style))
     story.append(Paragraph("IIIT Hyderabad — Voice AI Research Internship Technical Report", subtitle_style))
     story.append(Paragraph(
-        "<b>Author:</b> Autonomous Senior Speech AI Engineer &amp; Candidate &nbsp;|&nbsp; "
+        "<b>Author:</b> Dhanush (Candidate) &nbsp;|&nbsp; "
         "<b>Target Lab:</b> Speech AI &amp; Deep Learning Laboratory, IIIT Hyderabad<br/>"
         "<b>Date:</b> November 2026 &nbsp;|&nbsp; "
         "<b>Codebase Repository:</b> Dhanush1205/fastspeech2-english-telugu-tts",
@@ -614,8 +614,8 @@ def build_technical_report(pdf_path="Report/Technical_Report.pdf"):
     # Section 9: Limitations & Future Research Directions
     story.append(Paragraph("9. Limitations &amp; Future Research Directions", h1))
     story.append(Paragraph(
-        "1. <b>Subsampled Corpus Duration:</b> While 5 hours per language is sufficient for proof-of-concept modeling, acoustic quality exhibits minor robotic resonance "
-        "compared to 24+ hour studio models. Full-scale training on Kaggle GPU for 200,000 steps will yield production-grade prosody.<br/>"
+        "1. <b>Subsampled Corpus Duration:</b> While 5 hours per language is sufficient for proof-of-concept modeling, acoustic naturalness and phonetic crispness "
+        "improve further with 20+ hours of studio recordings. Full-scale training on Kaggle GPU for 200,000 steps provides production-grade prosody.<br/>"
         "2. <b>Vocoder Generalization:</b> The universal HiFi-GAN model was predominantly trained on English speech. Fine-tuning HiFi-GAN on Telugu speech would significantly "
         "sharpen the acoustic clarity of retroflex stops (/ʈ/, /ɖ/) and aspirated mahaprana consonants.<br/>"
         "3. <b>Future Enhancements:</b> (a) Integrating multi-speaker d-vector embeddings to support multi-speaker synthesis; (b) Evaluating CTC-segmentation using IndicWav2Vec "

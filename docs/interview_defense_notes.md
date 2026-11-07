@@ -23,7 +23,7 @@ This document breaks down the foundational speech processing and deep learning c
 > - **Purpose:** The text encoder outputs representations at the phoneme rate ($T_{\text{phone}}$), but the mel decoder must generate frames at the acoustic rate ($T_{\text{mel}}$). The Length Regulator bridges this temporal mismatch by repeating each hidden vector $h_i$ by its duration $d_i$.
 > - **Training vs Inference:**
 >   - *During Training:* It uses **ground-truth durations** obtained from forced alignment (MFA/IndicMFA), ensuring exact temporal alignment with the ground-truth audio target.
->   - *During Inference:* It uses **predicted durations** from the Duration Predictor (rounded to integers: $\text{round}(\exp(\hat{d}) - 1)$), allowing autonomous speech pacing without any reference audio.
+>   - *During Inference:* It uses **predicted durations** from the Duration Predictor (rounded to integers: $\text{round}(\exp(\hat{d}) - 1)$), allowing independent, non-autoregressive speech pacing without any reference audio.
 
 ### Q4: Why are Pitch and Energy quantized into 256 bins rather than added directly as continuous values?
 > **Answer:**
