@@ -156,12 +156,7 @@ def _align_english(args, corpus_dir: Path, output_dir: Path):
     _run([args.mfa, "model", "download", "acoustic", "english_us_arpa"])
     _run([args.mfa, "model", "download", "dictionary", "english_us_arpa"])
     _run([
-        args.mfa, "validate", str(corpus_dir),
-        "english_us_arpa", "english_us_arpa",
-    ])
-    _run([
         args.mfa, "align", "--clean", "-j", str(args.jobs), "--use_mp",
-        "--use_g2p",
         str(corpus_dir), "english_us_arpa", "english_us_arpa", str(output_dir),
     ])
 
