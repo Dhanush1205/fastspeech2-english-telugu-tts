@@ -4,7 +4,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![IIIT Hyderabad](https://img.shields.io/badge/IIIT%20Hyderabad-Voice%20AI-blue.svg)](https://www.iiit.ac.in/)
 
-Implementation and empirical evaluation of two independent **FastSpeech 2** Text-to-Speech (TTS) systems for **Indian-accented English** (Svarah corpus) and **Telugu** (IndicTTS corpus). Developed for the Voice AI Research Internship assignment at IIIT Hyderabad.
+Implementation of two independent **FastSpeech 2** text-to-speech pipelines for **Indian-accented English** (AI4Bharat Svarah) and **Telugu** (SPRINGLab IndicTTS Telugu), prepared for the IIIT Hyderabad Voice AI assignment. **Full-dataset training and final evaluation are not yet verified.** See `SUBMISSION_CHECKLIST.md` for evidence-based status.
 
 ---
 
@@ -29,9 +29,7 @@ Implementation and empirical evaluation of two independent **FastSpeech 2** Text
 ---
 
 ## 1. Project Overview
-FastSpeech 2 (Ren et al., 2020) is a state-of-the-art non-autoregressive feed-forward Transformer neural TTS model. This project establishes two independent, production-grade FastSpeech 2 pipelines:
-- **English Model:** Trained on ~5 hours of Indian-accented English speech from AI4Bharat's **Svarah** dataset with 1 hour validation split, ARPABET phonemization, and forced duration alignment.
-- **Telugu Model:** Trained on ~5 hours of professional Telugu speech from the IIT Madras **IndicTTS** dataset with 1 hour validation split, Unicode NFC grapheme-level tokenization, and Dravidian akshara prosodic modeling.
+FastSpeech 2 (Ren et al., 2020) is a non-autoregressive feed-forward Transformer TTS model. This repository contains separate English and Telugu implementations, preprocessing scripts, configurations and training/inference utilities. The assignment target is approximately 5 hours of training audio and 1 hour of validation audio per language. **These full-duration datasets and trained models must be treated as pending until their final manifests, checkpoints and run logs are present.**
 
 ---
 
@@ -189,13 +187,13 @@ fastspeech2-english-telugu-tts/
 
 | Dataset | Language | Provider | Total Available | Training Split | Validation Split | Sampling Rate | Input Representation |
 |:---|:---|:---|:---:|:---:|:---:|:---:|:---:|
-| **Svarah** | English (Indian Accent) | AI4Bharat | ~9.6 hours (117 speakers) | 5.0 hours | 1.0 hour | 22050 Hz | ARPABET Phonemes (81 tokens) |
-| **IndicTTS Telugu** | Telugu | IIT Madras DON Lab | ~8.74 hours | 5.0 hours | 1.0 hour | 22050 Hz | Unicode NFC Graphemes (100 tokens) |
+| **Svarah** | English (Indian Accent) | AI4Bharat | Single upstream `test` split; total available duration must be confirmed from selected records | Target: ~5h | Target: ~1h | 22050 Hz | ARPABET phonemes |
+| **IndicTTS Telugu** | Telugu | SPRINGLab | Upstream `train` split; selected duration must be measured during acquisition | Target: ~5h | Target: ~1h | 22050 Hz | Unicode NFC graphemes |
 
 > [!NOTE]
 > **Dataset Packaging & Partitioning Transparency:**
 > AI4Bharat published `ai4bharat/Svarah` specifically as an evaluation benchmark for Indian-accented English ASR (arXiv:2305.15760). Consequently, the upstream Hugging Face repository provides the entire 9.6-hour corpus under a single unified split named `test` (`data/test-*.parquet`). There are no official upstream `train` or `val` splits.
-> To fulfill the IIIT Hyderabad Voice AI assignment requirement of *5.0 hours training and 1.0 hour validation from Svarah*, our pipeline loads the official 9.6-hour Svarah corpus and performs **deterministic, speaker-disjoint partitioning** with zero speaker leakage (`train_speakers ∩ val_speakers = ∅`) and strict exclusion of mandatory evaluation test sentences. Complete split metadata and speaker lists are automatically tracked in `English/data_splits/split_metadata.json`.
+> The Svarah repository exposes a single upstream split named `test`; the project derives local train/validation subsets from that source. The public schema inspected for this project did not expose a stable unique speaker ID. The current split logic therefore uses demographic composite groups as a proxy and **must not be described as verified speaker-disjoint**. IndicTTS exposes audio, text and gender in the inspected schema, but no stable speaker ID; its local split is utterance-disjoint only. Both pipelines record split metadata and must pass the full 5h/1h duration checks before training.
 
 ---
 
@@ -329,7 +327,7 @@ python -m unittest tests/test_model.py
 ---
 
 ## 11. Variance Adaptor Visualisation
-All 30 variance adaptor plots are stored in `Results/`:
+After successful training and inference, the utility is intended to generate 30 variance adaptor plots in `Results/`:
 - **Duration Plots:** `Results/{Language}/variance_adaptor_plots/duration/` (10 plots)
 - **Pitch (F0) Plots:** `Results/{Language}/variance_adaptor_plots/pitch/` (10 plots)
 - **Energy Plots:** `Results/{Language}/variance_adaptor_plots/energy/` (10 plots)
@@ -337,7 +335,7 @@ All 30 variance adaptor plots are stored in `Results/`:
 ---
 
 ## 12. Training & Validation Loss Plots
-Four loss curves documenting training stability and convergence are generated:
+After training logs exist, the utility can generate four loss curves:
 - `Results/English/training_loss.png`
 - `Results/English/validation_loss.png`
 - `Results/Telugu/training_loss.png`
@@ -353,7 +351,7 @@ Detailed attribution and architectural comparisons are documented in [ORIGINAL_V
 ---
 
 ## 14. Checkpoints
-Trained model checkpoints are saved under:
+Model checkpoints will be saved under after genuine training runs:
 - `English/checkpoints/`
 - `Telugu/checkpoints/`
 
@@ -362,10 +360,7 @@ Trained model checkpoints are saved under:
 ---
 
 ## 15. Technical Report
-The complete 6-page academic technical report is available at:
-📄 **[Report/Technical_Report.pdf](Report/Technical_Report.pdf)**
-
-To recompile the PDF from source:
+The evidence-based report is generated from the actual local split metadata and available artifacts. A stale PDF with unverified experimental claims was removed. To generate the current status report:
 ```bash
 python Report/generate_report.py
 ```
