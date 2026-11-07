@@ -1,89 +1,70 @@
-# Final Submission & Technical Verification Checklist
-## IIIT Hyderabad Voice AI Research Assignment: FastSpeech 2 (English & Telugu)
+# Submission Checklist and Verification Status
 
-This checklist tracks the verification status of all components following the comprehensive technical audit.
+**Assignment:** FastSpeech 2 for English (Svarah) and Telugu (IndicTTS)  
+**Status:** Implementation fixes under validation; full experiments are not complete.
 
----
+This checklist separates code-level checks from dataset and GPU experiment evidence. Passing a unit test does not establish that either model has been trained.
 
-## 1. Assignment Architecture & Implementation Status
+## 1. Code and pipeline checks
 
-- [x] **Repository Structure:** Clean, modular structure with independent English and Telugu directories.
-- [x] **Primary Reference Paper:** Ren et al., *FastSpeech 2: Fast and High-Quality End-to-End Text to Speech* (arXiv:2006.04558)
-- [x] **Base Reference Code:** `ming024/FastSpeech2` (MIT License) with exact attribution in `ORIGINAL_VS_MODIFIED.md`.
-- [x] **English Model Pipeline:** Configured for Svarah dataset (~5h training, ~1h validation), ARPABET phonemization, independent config, training, and inference.
-- [x] **Telugu Model Pipeline:** Configured for IndicTTS Telugu dataset (~5h training, ~1h validation), Unicode NFC akshara tokenization, independent config, training, and inference.
-- [x] **Telugu Duration Alignment:** Primary aligner configured as **AI4Bharat IndicMFA** (Grapheme-to-Grapheme Telugu acoustic model and dictionary) with CTC-Segmentation fallback.
-- [x] **Audio Inversion Vocoder:** Pretrained HiFi-GAN Generator architecture (`hifigan/models.py`, `hifigan/config.json`, `hifigan/get_vocoder.py`) with Griffin-Lim algorithmic fallback. Strict error raising on inversion failure (sine-wave fallbacks removed).
-- [x] **Unit & Integration Tests:** 10/10 automated tests passing (`tests/test_model.py`) covering checkpoint validation, vocoder failure handling, dataset strictness, plot utility error handling, text processing, and model forward/loss passes.
-- [x] **Notebook Workflows:** Runnable Kaggle/Colab notebooks (`notebooks/01_` through `06_`) executing repository scripts with GPU detection and genuine logging.
+- [x] Separate English and Telugu model/configuration directories are present.
+- [x] Dataset acquisition scripts exist for AI4Bharat Svarah and SPRINGLab IndicTTS Telugu.
+- [x] IndicTTS acquisition supports the observed Hugging Face AudioDecoder record type.
+- [x] Dataset preparation checks waveform validity, sample rate, resampling and saved WAV readability.
+- [x] Telugu preparation documents that the inspected source schema does not expose a stable speaker ID.
+- [x] Svarah split reporting distinguishes demographic composite groups from verified speaker identities.
+- [x] Dataset preparation unit tests are included in GitHub Actions.
+- [x] Report generation is evidence-driven and no longer inserts synthetic loss plots or invented pronunciation observations.
+- [ ] Re-run the revised pipeline smoke tests in the live Colab environment.
+- [ ] Complete an end-to-end preprocessing/alignment test for each language.
 
----
+## 2. Dataset requirements
 
-## 2. Experimental Verification & GPU Training Status
+The assignment target is approximately 5 hours of training audio and 1 hour of validation audio for each language. These targets are not complete until final manifests and metadata show the achieved durations and zero utterance-ID overlap.
 
-| Component | Status | Verification Evidence |
-|:---|:---:|:---|
-| **Local Code & Unit Tests** | **VERIFIED** | 10 unit tests passing in 1.5s (`python -m unittest tests/test_model.py`) |
-| **Fake Checkpoints & Fallbacks** | **CLEANED** | Removed dummy `200000.pth.tar` checkpoints, sine wave generators, and synthetic plots |
-| **Remote GPU Training** | **PENDING EXECUTION** | Ready to run on Kaggle/Colab GPU (P100 / T4) via `notebooks/03_` and `04_` |
-| **English Synthesis (E1–E4)** | **PENDING GPU RUN** | Will be populated upon checkpoint training (WAV + `.npz` predictions) |
-| **Telugu Synthesis (T1–T4)** | **PENDING GPU RUN** | Will be populated upon checkpoint training (WAV + `.npz` predictions) |
-| **Variance Adaptor Plots (30)** | **PENDING GPU RUN** | Will be generated via `utils/plot_variance.py` from genuine predictions |
-| **Loss Curves (4)** | **PENDING GPU RUN** | Will be generated via `utils/plot_losses.py` from genuine `loss_history.npz` |
+| Requirement | English / Svarah | Telugu / IndicTTS |
+|---|---|---|
+| Upstream dataset | ai4bharat/Svarah | SPRINGLab/IndicTTS_Telugu |
+| Upstream split inspected | test | train |
+| Local partition strategy | Deterministic demographic-proxy grouping; not verified speaker IDs | Deterministic utterance-disjoint partition |
+| Stable speaker ID in observed schema | No | No |
+| Full 5h train / 1h validation verified | Pending | Pending |
+| Final utterance overlap check | Pending on revised full manifests | Pending on revised full manifests |
 
-> [!NOTE]
-> Following the technical audit, all placeholder audio (which previously produced ~0.3s artifacts from untrained weights and missing vocoder libraries) and artificial loss curves have been eliminated. Results will be populated strictly with genuine outputs from remote GPU training.
+Important: the Svarah demographic composite is not a unique speaker identifier. The inspected IndicTTS features are audio, text, and gender; they do not include a stable speaker identifier. Neither pipeline may claim true speaker-disjoint evaluation on the basis of these fields alone.
 
----
+## 3. GPU experiments and deliverables
 
-## 3. Mandatory Test Sentences Specification
+| Deliverable | Status |
+|---|---|
+| English preprocessing and duration alignment on full dataset | Pending |
+| Telugu preprocessing and duration alignment on full dataset | Pending |
+| English FastSpeech 2 training and genuine checkpoint | Pending |
+| Telugu FastSpeech 2 training and genuine checkpoint | Pending |
+| Training/validation loss histories for both models | Pending |
+| Five English assignment WAVs (E1, E2a, E2b, E3, E4) | Pending |
+| Five Telugu assignment WAVs (T1, T2a, T2b, T3, T4) | Pending |
+| Genuine prediction arrays for all 10 sentences | Pending |
+| 30 duration/pitch/energy variance-adaptor plots | Pending |
+| Human listening review / pronunciation observations | Pending |
+| Final report based on actual experiment evidence | Pending |
 
-### English Test Utterances
-| ID | Sentence Text | Character Count | Acoustic Highlights |
-|:---:|:---|:---:|:---|
-| **E1** | *The antidisestablishmentarianism movement gained considerable momentum during the parliamentary proceedings.* | 108 | Morphological complexity, polysyllabic stress |
-| **E2a** | *The orchestra's conduct during the ceremony was praised by the audience.* | 71 | Noun heteronym: conduct (/ˈkɒndʌkt/) |
-| **E2b** | *The researchers will conduct an experiment to evaluate the proposed method.* | 73 | Verb heteronym: conduct (/kənˈdʌkt/) |
-| **E3** | *The rhyth  m of the orchestra changed unexpectedly.* | 50 | Typo / whitespace preservation ("rhyth  m") |
-| **E4** | *The meeting will start at 10:45 AM on 12 November 2026, so andaroo should arrive on time.* | 90 | Numeric expansion + Telugu loanword ("andaroo") |
+A smoke test is only a small technical check. It is not a substitute for the assignment's full-duration training and validation datasets.
 
-### Telugu Test Utterances
-| ID | Sentence Text | Character Count | Linguistic Highlights |
-|:---:|:---|:---:|:---|
-| **T1** | *న్యూరోఫార్మకోలాజికల్ పరిశోధనలో నూతన ఔషధాల ప్రభావాన్ని విశ్లేషించారు.* | 68 | Polysyllabic scientific loanword, conjuncts |
-| **T2a** | *తాడుపై అతని పట్టు చాలా బలంగా ఉంది.* | 34 | Polysemous word: పట్టు (grip / hold) |
-| **T2b** | *ఆమె పట్టు చీరను ధరించి వేడుకకు వచ్చింది.* | 40 | Polysemous word: పట్టు (silk) |
-| **T3** | *పులి అడ  విలో నిశ్శబ్దంగా నడిచింది.* | 34 | Whitespace preservation ("అడ  విలో") |
-| **T4** | *ఈ సమావేశం 2026 నవంబర్ 12వ తేదీ ఉదయం 10:45 గంటలకు ప్రారంభమవుతుంది, సమయానికి సిద్ధంగా ఉంచండి.* | 92 | Date, time, Telugu numeral formatting |
+## 4. Reproduction commands
 
----
+Run from the repository root after the revised branch is checked out:
 
-## 4. Execution Commands Quick Reference
+    python -m unittest tests.test_dataset_preparation -v
 
-```bash
-# 1. Run automated unit test suite (verifies model, tokenizer, strict error handling)
-python -m unittest tests/test_model.py
+    python data_prep/prepare_svarah.py --output_dir data/svarah --splits_dir English/data_splits --train_hours 5.0 --val_hours 1.0
 
-# 2. Prepare datasets (accumulates 5.0h train / 1.0h val splits)
-python data_prep/prepare_svarah.py --train_hours 5.0 --val_hours 1.0
-python data_prep/prepare_indictts.py --train_hours 5.0 --val_hours 1.0
+    python data_prep/prepare_indictts.py --output_dir data/indictts_telugu --splits_dir Telugu/data_splits --train_hours 5.0 --val_hours 1.0
 
-# 3. Download IndicMFA models for Telugu alignment
-python Telugu/preprocess.py --download_indicmfa_models
+Do not start full training until both datasets reach their requested durations, manifests are verified, and preprocessing/alignment completes without fabricated or fallback features.
 
-# 4. Run preprocessing & feature extraction
-python English/preprocess.py --config English/config.yaml
-python Telugu/preprocess.py --config Telugu/config.yaml
+## 5. Reporting policy
 
-# 5. Launch GPU training (remote instance)
-python English/train.py -p English/config/preprocess.yaml -m English/config/model.yaml -t English/config/train.yaml
-python Telugu/train.py -p Telugu/config/preprocess.yaml -m Telugu/config/model.yaml -t Telugu/config/train.yaml
+Report/generate_report.py reads local split metadata and artifact presence. It reports missing evidence as pending. The previous pre-generated PDF was removed because it contained unsupported claims about completed training, generated speech and pronunciation quality.
 
-# 6. Run inference on test sentences (requires trained checkpoint)
-python English/inference.py --checkpoint English/checkpoints/checkpoint_final.pth.tar
-python Telugu/inference.py --checkpoint Telugu/checkpoints/checkpoint_final.pth.tar
-
-# 7. Generate variance plots and loss curves from genuine outputs
-python utils/plot_variance.py
-python utils/plot_losses.py
-```
+Final submission should include real checkpoints, audio files, training histories, plots and a report generated from those artifacts.
