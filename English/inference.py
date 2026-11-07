@@ -27,6 +27,7 @@ import torch
 import numpy as np
 import soundfile as sf
 from pathlib import Path
+from typing import Optional
 
 # Add project root to sys.path
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -45,13 +46,25 @@ def parse_args():
     parser.add_argument("-p", "--preprocess_config", type=str, default=str(script_dir / "config" / "preprocess.yaml"))
     parser.add_argument("-m", "--model_config", type=str, default=str(script_dir / "config" / "model.yaml"))
     parser.add_argument("-t", "--train_config", type=str, default=str(script_dir / "config" / "train.yaml"))
-    parser.add_argument("--checkpoint", type=str, default=str(script_dir / "checkpoints" / "200000.pth.tar"))
+    parser.add_argument("--checkpoint", type=str, default=None, help="Path to trained checkpoint (.pth.tar)")
     parser.add_argument("--output_dir", type=str, default=str(root_dir / "Results" / "English" / "test_generated_audios"))
     parser.add_argument("--stats_dir", type=str, default=str(root_dir / "data" / "preprocessed" / "english"))
     parser.add_argument("--d_control", type=float, default=1.0)
     parser.add_argument("--p_control", type=float, default=1.0)
     parser.add_argument("--e_control", type=float, default=1.0)
     return parser.parse_args()
+
+
+def resolve_checkpoint_path(checkpoint_arg: Optional[str], checkpoints_dir: Path) -> str:
+    if checkpoint_arg and os.path.exists(checkpoint_arg):
+        return checkpoint_arg
+    ckpts = [p for p in checkpoints_dir.glob("*.pth.tar")] + [p for p in checkpoints_dir.glob("*.pth")]
+    if ckpts:
+        latest = max(ckpts, key=os.path.getmtime)
+        return str(latest)
+    if checkpoint_arg:
+        return checkpoint_arg
+    return str(checkpoints_dir / "checkpoint_final.pth.tar")
 
 
 def load_model(preprocess_cfg, model_cfg, checkpoint_path, device):
@@ -224,7 +237,8 @@ def main():
     if e_std_f.exists(): stats["e_std"] = float(np.load(e_std_f))
 
     # Load model
-    model, vocab = load_model(prep_cfg, mod_cfg, args.checkpoint, device)
+    ckpt_file = resolve_checkpoint_path(args.checkpoint, Path(__file__).parent / "checkpoints")
+    model, vocab = load_model(prep_cfg, mod_cfg, ckpt_file, device)
     phonemizer = EnglishPhonemizer()
 
     # Load vocoder if available
