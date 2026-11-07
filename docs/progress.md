@@ -51,3 +51,11 @@
    - Aligned `<eos>` token with duration length in both dataset loading and inference.
 8. **Automated Test Suite Expansion:**
    - Expanded `tests/test_model.py` to 10 comprehensive tests covering checkpoint rejection, audio inversion error handling, prediction file validation, dataset strictness, and model execution. All 10 tests pass.
+9. **HiFi-GAN Package & NLTK Taggers Integration:**
+   - Corrected `.gitignore` so the genuine PyTorch HiFi-GAN Generator package (`hifigan/models.py`, `get_vocoder.py`, `config.json`, `__init__.py`) is tracked in Git rather than ignored.
+   - Added automatic downloading of `averaged_perceptron_tagger_eng`, `averaged_perceptron_tagger`, and `cmudict` in `English/text_processing.py` and notebook setup.
+10. **Svarah Dataset Upstream Structure & Speaker-Disjoint Partitioning:**
+   - Verified that `ai4bharat/Svarah` is published as an evaluation benchmark containing a single 9.6-hour split named `test` on Hugging Face.
+   - Implemented deterministic, speaker-disjoint partitioning (`train_speakers ∩ val_speakers = ∅`) for both smoke testing (10 train / 4 val) and full experiments (~5.0h train / ~1.0h val).
+   - Added strict test-sentence protection excluding all mandatory evaluation sentences (E1–E4).
+   - Generated `English/data_splits/split_metadata.json` documenting upstream split name, strategy, speaker counts, IDs, durations, and zero overlap verification.

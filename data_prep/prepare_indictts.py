@@ -16,6 +16,7 @@ Usage:
 
 import os
 import sys
+import json
 import argparse
 import logging
 from pathlib import Path
@@ -93,19 +94,32 @@ def prepare_indictts(args):
         sample_idx += 1
         sid = f"telugu_{sample_idx:06d}"
         audio_data = item.get("audio", {})
-        audio_bytes = audio_data.get("bytes")
         text = item.get("transcription", item.get("text", "")).strip()
 
-        if not audio_bytes or not text:
+        if not audio_data or not text:
             continue
 
-        try:
-            array, sr = sf.read(io.BytesIO(audio_bytes))
-        except Exception as e:
-            logger.warning(f"Failed to decode audio bytes for {sid}: {e}")
-            continue
+        array = None
+        sr = args.target_sr
 
-        if len(array) == 0:
+        if isinstance(audio_data, dict):
+            if audio_data.get("bytes"):
+                try:
+                    array, sr = sf.read(io.BytesIO(audio_data["bytes"]))
+                except Exception as e:
+                    logger.warning(f"Failed to decode audio bytes for {sid}: {e}")
+                    continue
+            elif audio_data.get("path") and os.path.exists(audio_data["path"]):
+                try:
+                    array, sr = sf.read(audio_data["path"])
+                except Exception as e:
+                    logger.warning(f"Failed to read audio file for {sid}: {e}")
+                    continue
+            elif "array" in audio_data and audio_data["array"] is not None:
+                array = np.array(audio_data["array"], dtype=np.float32)
+                sr = audio_data.get("sampling_rate", 16000)
+
+        if array is None or len(array) == 0:
             continue
 
         # Convert to mono if multi-channel
@@ -164,6 +178,28 @@ def prepare_indictts(args):
             for s in samples:
                 f.write(f"{s['id']}|{s['audio_path']}|{s['text']}|{s['speaker']}\n")
         logger.info(f"Saved manifest: {manifest_file} ({len(samples)} lines)")
+
+    # Write split metadata JSON
+    train_speakers = sorted(list({s['speaker'] for s in train_samples}))
+    val_speakers = sorted(list({s['speaker'] for s in val_samples}))
+    meta_file = splits_dir / "split_metadata.json"
+    with open(meta_file, "w", encoding="utf-8") as f:
+        json.dump({
+            "dataset_source": "SPRINGLab/IndicTTS_Telugu",
+            "upstream_split": "train",
+            "split_strategy": "deterministic_sequential",
+            "mode": "smoke_test" if is_smoke else "full_dataset",
+            "train_sample_count": len(train_samples),
+            "val_sample_count": len(val_samples),
+            "train_speakers": train_speakers,
+            "val_speakers": val_speakers,
+            "train_duration_sec": round(train_sec, 2),
+            "val_duration_sec": round(val_sec, 2),
+            "train_duration_hours": round(train_sec / 3600.0, 3),
+            "val_duration_hours": round(val_sec / 3600.0, 3),
+            "target_sr": args.target_sr,
+        }, f, indent=2)
+    logger.info(f"Saved Telugu split metadata: {meta_file}")
 
 
 if __name__ == "__main__":

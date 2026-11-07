@@ -189,10 +189,13 @@ fastspeech2-english-telugu-tts/
 
 | Dataset | Language | Provider | Total Available | Training Split | Validation Split | Sampling Rate | Input Representation |
 |:---|:---|:---|:---:|:---:|:---:|:---:|:---:|
-| **Svarah** | English (Indian Accent) | AI4Bharat | ~9.6 hours | 5.0 hours | 1.0 hour | 22050 Hz | ARPABET Phonemes (81 tokens) |
+| **Svarah** | English (Indian Accent) | AI4Bharat | ~9.6 hours (117 speakers) | 5.0 hours | 1.0 hour | 22050 Hz | ARPABET Phonemes (81 tokens) |
 | **IndicTTS Telugu** | Telugu | IIT Madras DON Lab | ~8.74 hours | 5.0 hours | 1.0 hour | 22050 Hz | Unicode NFC Graphemes (100 tokens) |
 
-**Split Methodology:** Random utterance-level partitioning with deterministic random seed `42` ensuring zero overlap between training and validation sets.
+> [!NOTE]
+> **Dataset Packaging & Partitioning Transparency:**
+> AI4Bharat published `ai4bharat/Svarah` specifically as an evaluation benchmark for Indian-accented English ASR (arXiv:2305.15760). Consequently, the upstream Hugging Face repository provides the entire 9.6-hour corpus under a single unified split named `test` (`data/test-*.parquet`). There are no official upstream `train` or `val` splits.
+> To fulfill the IIIT Hyderabad Voice AI assignment requirement of *5.0 hours training and 1.0 hour validation from Svarah*, our pipeline loads the official 9.6-hour Svarah corpus and performs **deterministic, speaker-disjoint partitioning** with zero speaker leakage (`train_speakers ∩ val_speakers = ∅`) and strict exclusion of mandatory evaluation test sentences. Complete split metadata and speaker lists are automatically tracked in `English/data_splits/split_metadata.json`.
 
 ---
 

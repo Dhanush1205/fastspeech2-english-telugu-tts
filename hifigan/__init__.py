@@ -13,3 +13,4 @@ from hifigan.models import Generator
 from hifigan.get_vocoder import get_vocoder
 
 __all__ = ["Generator", "get_vocoder"]
+
