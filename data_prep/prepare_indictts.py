@@ -179,7 +179,7 @@ def _write_manifest(path: Path, rows: list[dict]):
     with path.open("w", encoding="utf-8", newline="\n") as handle:
         for row in rows:
             text = row["text"].replace("|", " ").replace("\r", " ").replace("\n", " ")
-            handle.write(f'{row["id"]}|{row["audio_path"]}|{text}|unknown\n')
+            handle.write(f'{row["id"]}|{row["audio_path"]}|{text}|{row.get("speaker", "unknown")}\n')
 
 
 def prepare_indictts(args):
@@ -265,13 +265,28 @@ def prepare_indictts(args):
             if txt_path.read_text(encoding="utf-8") != transcript:
                 raise IOError(f"Transcript round-trip verification failed: {txt_path}")
 
+            gender_value = item.get("gender")
+            gender_name = None
+            gender_feature = getattr(dataset.features, "get", lambda _k: None)("gender")
+            if gender_value is not None and gender_feature is not None and hasattr(gender_feature, "int2str"):
+                try:
+                    gender_name = str(gender_feature.int2str(int(gender_value))).strip().lower()
+                except Exception:
+                    gender_name = None
+            elif gender_value is not None:
+                gender_name = str(gender_value).strip().lower()
+            # The inspected IndicTTS schema exposes gender but no stable speaker ID.
+            # Keep the gender grouping as an explicit proxy for MFA corpus layout only.
+            speaker_proxy = f"gender_{gender_name}" if gender_name in {"female", "male"} else "unknown"
+
             row = {
                 "id": sample_id,
                 "audio_path": wav_path.as_posix(),
                 "text": transcript,
                 "duration": duration,
                 "source_index": source_index,
-                "gender": item.get("gender"),
+                "gender": gender_name,
+                "speaker": speaker_proxy,
             }
 
             # Deterministic sequential allocation, with each source utterance
@@ -330,9 +345,12 @@ def prepare_indictts(args):
         "split_strategy": "deterministic_utterance_disjoint_sequential",
         "speaker_identity_available": False,
         "speaker_disjoint": None,
+        "speaker_grouping_field": "gender proxy",
         "speaker_note": (
             "The inspected source schema exposes audio, text, and gender but no "
-            "stable speaker ID. Speaker-disjointness cannot be verified."
+            "stable speaker ID. The gender_female/gender_male values are used "
+            "only as alignment-corpus speaker folders. They are not claimed as "
+            "verified per-utterance speaker IDs; speaker-disjointness remains unverified."
         ),
         "mode": "smoke_test" if smoke else "full_dataset",
         "seed": args.seed,
