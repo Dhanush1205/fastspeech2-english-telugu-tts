@@ -1,375 +1,347 @@
-"""
-Technical Report Generator
-==========================
+"""Generate an evidence-based FastSpeech 2 technical report.
 
-Generates Report/Technical_Report.pdf using ReportLab.
-Includes complete research documentation:
-  1. Abstract & Introduction
-  2. FastSpeech 2 Architecture (Encoder, Variance Adaptor, Decoder, PostNet)
-  3. Dataset Selection (Svarah English ~5h/1h, IndicTTS Telugu ~5h/1h)
-  4. Preprocessing & Normalization Pipelines
-  5. Telugu-Specific Grapheme & Akshara Processing
-  6. Original vs Modified Architecture Attribution
-  7. Training Methodology & Remote GPU Scaling
-  8. Training and Validation Loss Analysis
-  9. Speech Synthesis & Waveform Inversion
-  10. English Pronunciation Observations (E1-E4)
-  11. Telugu Pronunciation Observations (T1-T4)
-  12. Duration, Pitch (F0), Energy Variance Analysis
-  13. English vs Telugu Cross-Lingual Comparison
-  14. Limitations and Future Work
-  15. Reproducibility & Execution Commands
-  16. References
+The report intentionally distinguishes implementation claims from completed
+experiments. Dataset durations, checkpoints, losses, generated audio, and plots
+are reported only when corresponding files and metadata are present locally.
+No placeholder observations or synthetic results are inserted.
 """
+from __future__ import annotations
 
-import os
+import json
+from datetime import date
+from pathlib import Path
+
+from reportlab.lib import colors
+from reportlab.lib.enums import TA_CENTER
 from reportlab.lib.pagesizes import letter
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+from reportlab.lib.units import inch
 from reportlab.platypus import (
-    SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, PageBreak, Image, HRFlowable
+    SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, PageBreak
 )
-from reportlab.lib import colors
+
+
+ROOT = Path(".")
+LANGUAGES = {
+    "English": {
+        "splits": ROOT / "English/data_splits",
+        "checkpoints": ROOT / "English/checkpoints",
+        "audio": ROOT / "Results/English/test_generated_audios",
+        "plots": ROOT / "Results/English/variance_adaptor_plots",
+        "loss": ROOT / "English/checkpoints/loss_history.npz",
+        "sentences": ["E1", "E2a", "E2b", "E3", "E4"],
+    },
+    "Telugu": {
+        "splits": ROOT / "Telugu/data_splits",
+        "checkpoints": ROOT / "Telugu/checkpoints",
+        "audio": ROOT / "Results/Telugu/test_generated_audios",
+        "plots": ROOT / "Results/Telugu/variance_adaptor_plots",
+        "loss": ROOT / "Telugu/checkpoints/loss_history.npz",
+        "sentences": ["T1", "T2a", "T2b", "T3", "T4"],
+    },
+}
+
+
+def _read_json(path: Path):
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+
+
+def _manifest_stats(split_dir: Path):
+    train_path = split_dir / "train.txt"
+    val_path = split_dir / "val.txt"
+    if not train_path.is_file() or not val_path.is_file():
+        return None
+
+    def ids(path):
+        result = set()
+        for line in path.read_text(encoding="utf-8").splitlines():
+            if line.strip():
+                result.add(line.split("|", 1)[0].strip())
+        return result
+
+    train_ids = ids(train_path)
+    val_ids = ids(val_path)
+    return {
+        "train_count": len(train_ids),
+        "val_count": len(val_ids),
+        "utterance_overlap": len(train_ids & val_ids),
+    }
+
+
+def _language_evidence(language: str, config: dict):
+    meta = _read_json(config["splits"] / "split_metadata.json")
+    manifests = _manifest_stats(config["splits"])
+    train_hours = meta.get("train_duration_hours") if meta else None
+    val_hours = meta.get("val_duration_hours") if meta else None
+    full_targets_met = bool(
+        meta
+        and meta.get("mode") == "full_dataset"
+        and isinstance(train_hours, (int, float))
+        and isinstance(val_hours, (int, float))
+        and train_hours >= 5.0
+        and val_hours >= 1.0
+        and manifests
+        and manifests["utterance_overlap"] == 0
+    )
+
+    ckpts = []
+    if config["checkpoints"].is_dir():
+        ckpts = sorted(
+            p.name for p in config["checkpoints"].glob("*")
+            if p.is_file() and p.suffix in {".pt", ".pth"}
+            or p.is_file() and p.name.endswith(".pth.tar")
+        )
+
+    generated = {
+        sid: (config["audio"] / f"{sid}.wav").is_file()
+        for sid in config["sentences"]
+    }
+    predictions = {
+        sid: (config["audio"] / f"{sid}_predictions.npz").is_file()
+        for sid in config["sentences"]
+    }
+    plot_files = list(config["plots"].rglob("*.png")) if config["plots"].is_dir() else []
+
+    return {
+        "metadata": meta,
+        "manifests": manifests,
+        "full_targets_met": full_targets_met,
+        "train_hours": train_hours,
+        "val_hours": val_hours,
+        "checkpoints": ckpts,
+        "loss_log": config["loss"].is_file(),
+        "generated": generated,
+        "predictions": predictions,
+        "plot_count": len(plot_files),
+    }
+
+
+def _status(value: bool, yes="Verified", no="Pending"):
+    return yes if value else no
 
 
 def build_technical_report(pdf_path="Report/Technical_Report.pdf"):
-    os.makedirs(os.path.dirname(pdf_path), exist_ok=True)
-    doc = SimpleDocTemplate(
-        pdf_path,
-        pagesize=letter,
-        rightMargin=45,
-        leftMargin=45,
-        topMargin=45,
-        bottomMargin=45
-    )
+    pdf_path = Path(pdf_path)
+    pdf_path.parent.mkdir(parents=True, exist_ok=True)
+    evidence = {
+        language: _language_evidence(language, config)
+        for language, config in LANGUAGES.items()
+    }
 
     styles = getSampleStyleSheet()
-    
-    # Custom styles
-    title_style = ParagraphStyle(
-        "DocTitle",
-        parent=styles["Heading1"],
-        fontName="Helvetica-Bold",
-        fontSize=20,
-        leading=24,
-        textColor=colors.HexColor("#1e3a8a"),
-        alignment=1, # Center
-        spaceAfter=8,
-    )
-    subtitle_style = ParagraphStyle(
-        "DocSubTitle",
-        parent=styles["Normal"],
-        fontName="Helvetica-Oblique",
-        fontSize=12,
-        leading=16,
-        textColor=colors.HexColor("#4b5563"),
-        alignment=1,
-        spaceAfter=15,
-    )
-    author_style = ParagraphStyle(
-        "AuthorStyle",
-        parent=styles["Normal"],
-        fontName="Helvetica",
-        fontSize=10,
-        leading=14,
-        textColor=colors.HexColor("#374151"),
-        alignment=1,
-        spaceAfter=20,
-    )
-    h1 = ParagraphStyle(
-        "Heading1_Custom",
-        parent=styles["Heading1"],
-        fontName="Helvetica-Bold",
-        fontSize=14,
-        leading=18,
-        textColor=colors.HexColor("#1e3a8a"),
-        spaceBefore=14,
-        spaceAfter=6,
-    )
-    h2 = ParagraphStyle(
-        "Heading2_Custom",
-        parent=styles["Heading2"],
-        fontName="Helvetica-Bold",
-        fontSize=11,
-        leading=15,
-        textColor=colors.HexColor("#1f2937"),
-        spaceBefore=10,
-        spaceAfter=4,
-    )
-    body = ParagraphStyle(
-        "Body_Custom",
-        parent=styles["Normal"],
-        fontName="Helvetica",
-        fontSize=9.5,
-        leading=13.5,
-        textColor=colors.HexColor("#1f2937"),
-        spaceAfter=6,
-    )
-    callout = ParagraphStyle(
-        "Callout",
-        parent=styles["Normal"],
-        fontName="Helvetica-Oblique",
-        fontSize=9,
-        leading=13,
-        textColor=colors.HexColor("#1e40af"),
-        backColor=colors.HexColor("#eff6ff"),
-        borderColor=colors.HexColor("#bfdbfe"),
-        borderWidth=1,
-        borderPadding=6,
-        spaceAfter=8,
-    )
+    styles.add(ParagraphStyle(
+        name="DocTitle", parent=styles["Title"], fontSize=19,
+        leading=23, alignment=TA_CENTER, textColor=colors.HexColor("#17365D"),
+        spaceAfter=8
+    ))
+    styles.add(ParagraphStyle(
+        name="Section", parent=styles["Heading2"], fontSize=13,
+        leading=16, textColor=colors.HexColor("#17365D"),
+        spaceBefore=12, spaceAfter=6
+    ))
+    styles.add(ParagraphStyle(
+        name="Small", parent=styles["BodyText"], fontSize=8.5, leading=11
+    ))
 
+    doc = SimpleDocTemplate(
+        str(pdf_path), pagesize=letter, rightMargin=0.6*inch,
+        leftMargin=0.6*inch, topMargin=0.55*inch, bottomMargin=0.55*inch
+    )
     story = []
 
-    # Title & Metadata
-    story.append(Paragraph("FastSpeech 2-Based English and Telugu Speech Synthesis", title_style))
-    story.append(Paragraph("IIIT Hyderabad — Voice AI Research Internship Technical Report", subtitle_style))
-    story.append(Paragraph("<b>Author:</b> Autonomous Senior Speech AI Engineer &amp; Candidate<br/><b>Affiliation:</b> Speech AI &amp; Deep Learning Laboratory<br/><b>Date:</b> November 2026", author_style))
-    story.append(HRFlowable(width="100%", thickness=1.5, color=colors.HexColor("#1e3a8a"), spaceAfter=14))
+    def para(text, style="BodyText"):
+        story.append(Paragraph(text, styles[style]))
 
-    # Abstract
-    story.append(Paragraph("Abstract", h1))
     story.append(Paragraph(
-        "This research report presents the complete design, implementation, and empirical evaluation of two "
-        "independent FastSpeech 2 text-to-speech (TTS) systems: one for Indian-accented English utilizing the "
-        "AI4Bharat <i>Svarah</i> corpus, and one for Telugu utilizing the IIT Madras <i>IndicTTS</i> Telugu dataset. "
-        "Retaining the foundational feed-forward Transformer and variance adaptor architecture of FastSpeech 2 (Ren et al., 2020), "
-        "we extend the reference codebase (ming024/FastSpeech2) to support low-resource Dravidian speech synthesis through a "
-        "rigorous grapheme-based akshara representation and Unicode NFC normalization. We detail the train-validation data selection "
-        "(5 hours train, 1 hour validation per language), forced duration alignment, pitch and energy feature extraction, "
-        "remote Kaggle GPU scaling, and qualitative analysis across 10 mandatory evaluation sentences. Variance adaptor predictions "
-        "for duration, pitch (F0), and acoustic energy are visualized across 30 figures, revealing distinct prosodic contours and phonotactic characteristics.",
-        body
+        "FastSpeech 2 for English and Telugu: Implementation and Experiment Report",
+        styles["DocTitle"]
     ))
+    para(f"Evidence snapshot generated on {date.today().isoformat()}.", "Small")
+    para(
+        "<b>Reporting rule:</b> This document reports only facts supported by "
+        "repository files, split metadata, checkpoints, logs, generated audio, "
+        "and plots present at generation time. Missing artifacts are marked "
+        "pending; no listening observations or training outcomes are invented."
+    )
 
-    # 1. Introduction & Background
-    story.append(Paragraph("1. Introduction &amp; Theoretical Background", h1))
-    story.append(Paragraph(
-        "Autoregressive neural TTS models, such as Tacotron 2 and Transformer TTS, synthesize high-quality mel-spectrograms "
-        "step-by-step using recurrent attention mechanisms. However, they suffer from two fundamental bottlenecks: (1) slow inference speed "
-        "due to serial frame generation, and (2) attention errors including word skipping, repeating, and phoneme collapse. FastSpeech (Ren et al., 2019) "
-        "resolved the inference bottleneck using non-autoregressive feed-forward Transformer (FFT) blocks and attention distillation from an autoregressive teacher. "
-        "Nonetheless, FastSpeech 1 suffered from blurry mel-spectrograms due to information loss during distillation and imprecise teacher attention alignments.<br/><br/>"
-        "<b>FastSpeech 2 (Ren et al., 2020)</b> introduces three pivotal breakthroughs:<br/>"
-        "• <b>Direct Ground-Truth Supervision:</b> Eliminates teacher-student distillation by directly training on ground-truth mel-spectrograms.<br/>"
-        "• <b>Forced Duration Alignment:</b> Replaces soft attention distillation with hard duration labels extracted via external forced aligners.<br/>"
-        "• <b>Variance Adaptor:</b> Explicitly models pitch (fundamental frequency F0) and acoustic energy alongside duration to solve the one-to-many "
-        "prosodic mapping problem in text-to-speech synthesis.",
-        body
-    ))
+    story.append(Paragraph("1. Objective and system design", styles["Section"]))
+    para(
+        "The project implements separate FastSpeech 2 pipelines for English "
+        "and Telugu. The shared model uses a text encoder, variance adaptor "
+        "(duration, pitch and energy predictors), mel decoder and PostNet. "
+        "English text is represented with the repository's ARPABET/G2P path; "
+        "Telugu text is represented with Unicode-normalized grapheme tokens. "
+        "The two languages use separate preprocessing configurations, "
+        "vocabularies, training configurations and checkpoints."
+    )
+    para(
+        "Audio preparation targets 22,050 Hz mono WAV files. Acoustic features "
+        "include mel spectrograms, pitch, energy and token/frame durations. "
+        "Duration supervision depends on successful forced alignment; the "
+        "selected alignment backend and its actual outputs must be recorded "
+        "from the run rather than inferred from configuration alone."
+    )
 
-    # 2. Model Architecture
-    story.append(Paragraph("2. Model Architecture", h1))
-    story.append(Paragraph(
-        "The model comprises four integrated components:<br/>"
-        "1. <b>Text Encoder:</b> Maps discrete token sequences (phonemes for English, graphemes for Telugu) into hidden continuous representations "
-        "using 4 FFT blocks (d_model=256, 2 attention heads, Conv1D kernel=[9, 1], filter=1024).<br/>"
-        "2. <b>Variance Adaptor:</b> Injects duration, pitch, and energy variation. The <i>Duration Predictor</i> forecasts phoneme durations in the log-domain. "
-        "The <i>Length Regulator</i> expands encoder states to the mel-frame dimension. Pitch and energy predictors calculate frame-level scalar features, "
-        "which are quantized into 256 bins and embedded before addition to the hidden representation.<br/>"
-        "3. <b>Mel Decoder:</b> Consists of 4 FFT blocks mirroring the encoder structure, decoding frame-level hidden vectors into intermediate mel frames.<br/>"
-        "4. <b>PostNet:</b> A 5-layer 1D convolutional residual network (filter=512, kernel=5) refining harmonic structures and spectral details.",
-        body
-    ))
-
-    # 3. Dataset Acquisition & Subsampling
-    story.append(Paragraph("3. Dataset Acquisition &amp; Subsampling Strategy", h1))
-    story.append(Paragraph(
-        "Both models were trained on precisely partitioned 5-hour training and 1-hour validation splits to prevent data leakage:",
-        body
-    ))
-
-    data_table = [
-        ["Language", "Dataset", "Total Corpus", "Training Set", "Validation Set", "Audio SR", "Representation"],
-        ["English", "Svarah (AI4Bharat)", "~9.6 hours", "5.0 hours (seed 42)", "1.0 hour (seed 42)", "22050 Hz", "Phonemic (ARPABET)"],
-        ["Telugu", "IndicTTS (IIT Madras)", "~8.74 hours", "5.0 hours (seed 42)", "1.0 hour (seed 42)", "22050 Hz", "Graphemic (Unicode NFC)"]
-    ]
-    t = Table(data_table, colWidths=[60, 100, 75, 80, 80, 60, 80])
-    t.setStyle(TableStyle([
-        ('BACKGROUND', (0,0), (-1,0), colors.HexColor("#1e3a8a")),
-        ('TEXTCOLOR', (0,0), (-1,0), colors.whitesmoke),
-        ('ALIGN', (0,0), (-1,-1), 'CENTER'),
-        ('FONTNAME', (0,0), (-1,0), 'Helvetica-Bold'),
-        ('FONTSIZE', (0,0), (-1,-1), 8),
-        ('BOTTOMPADDING', (0,0), (-1,-1), 4),
-        ('GRID', (0,0), (-1,-1), 0.5, colors.HexColor("#cbd5e1")),
+    story.append(Paragraph("2. Dataset preparation and split evidence", styles["Section"]))
+    rows = [[
+        "Language", "Dataset", "Train hours", "Validation hours",
+        "Train / Val items", "Utterance overlap", "Speaker split"
+    ]]
+    for language, ev in evidence.items():
+        meta = ev["metadata"] or {}
+        manifests = ev["manifests"] or {}
+        speaker_status = "Not verified"
+        if meta.get("speaker_disjoint") is True:
+            speaker_status = "Verified"
+        elif meta.get("speaker_identity_available") is False:
+            speaker_status = "Unavailable in source schema"
+        elif meta.get("split_strategy") == "demographic_group_disjoint_sequential":
+            speaker_status = "Demographic proxy only"
+        rows.append([
+            language,
+            "AI4Bharat Svarah" if language == "English" else "SPRINGLab IndicTTS Telugu",
+            f'{ev["train_hours"]:.3f}' if isinstance(ev["train_hours"], (int, float)) else "Not recorded",
+            f'{ev["val_hours"]:.3f}' if isinstance(ev["val_hours"], (int, float)) else "Not recorded",
+            f'{manifests.get("train_count", 0)} / {manifests.get("val_count", 0)}' if manifests else "No manifests",
+            str(manifests.get("utterance_overlap", "Not checked")) if manifests else "Not checked",
+            speaker_status,
+        ])
+    table = Table(rows, repeatRows=1, colWidths=[55, 95, 53, 58, 62, 63, 95])
+    table.setStyle(TableStyle([
+        ("BACKGROUND", (0,0), (-1,0), colors.HexColor("#17365D")),
+        ("TEXTCOLOR", (0,0), (-1,0), colors.white),
+        ("FONTNAME", (0,0), (-1,0), "Helvetica-Bold"),
+        ("FONTSIZE", (0,0), (-1,-1), 7),
+        ("GRID", (0,0), (-1,-1), 0.35, colors.HexColor("#B8C2CC")),
+        ("VALIGN", (0,0), (-1,-1), "MIDDLE"),
+        ("ROWBACKGROUNDS", (0,1), (-1,-1), [colors.white, colors.HexColor("#F3F6F9")]),
     ]))
-    story.append(t)
-    story.append(Spacer(1, 10))
+    story.append(table)
+    story.append(Spacer(1, 6))
+    for language, ev in evidence.items():
+        status = "The 5h/1h full-data targets are met." if ev["full_targets_met"] else (
+            "The full 5h/1h targets are not verified from the current metadata. "
+            "Smoke-test subsets do not count as the assignment's full dataset."
+        )
+        para(f"<b>{language}:</b> {status}", "Small")
+    para(
+        "Svarah's public schema provides demographic fields but no verified "
+        "unique speaker identifier in the observed records. Consequently, "
+        "demographic composite groups must not be described as ground-truth "
+        "speaker IDs. The observed IndicTTS schema contains audio, text and "
+        "gender, but no stable speaker ID; its split can be verified by "
+        "utterance ID only."
+    )
 
-    # 4. Text Processing: English vs Telugu
-    story.append(Paragraph("4. Language-Specific Text Processing", h1))
-    story.append(Paragraph(
-        "<b>English Text Processing:</b> English words are normalized (number and currency expansion via <i>inflect</i>, contraction unfolding) "
-        "and converted to 81 ARPABET phoneme symbols via <i>g2p_en</i> with CMU Pronouncing Dictionary lookup. Alignment is performed using Montreal Forced Aligner (MFA).<br/><br/>"
-        "<b>Telugu Text Processing &amp; The Grapheme Choice:</b> Dravidian languages exhibit agglutinative phonology and complex akshara (syllabic cluster) structure. "
-        "Due to the absence of standardized, high-coverage Telugu phoneme dictionaries, we adopt a <b>Grapheme-Based Unicode NFC</b> tokenization scheme. "
-        "Telugu Unicode ranges U+0C00–U+0C7F (independent vowels, consonants, dependent matras, virama/halant, anusvara, visarga) are mapped to a 100-character vocabulary. "
-        "Because Telugu orthography is phonemically transparent (graphemes directly mirror phonetic realization), the text encoder learns acoustic-phonetic mappings directly.",
-        body
-    ))
+    story.append(Paragraph("3. Experimental execution status", styles["Section"]))
+    status_rows = [["Evidence", "English", "Telugu"]]
+    for label, key in [
+        ("Full 5h / 1h dataset target", "full_targets_met"),
+        ("Checkpoint file present", "checkpoints"),
+        ("Genuine loss history present", "loss_log"),
+        ("All five assignment WAVs present", "generated"),
+        ("All five prediction NPZ files present", "predictions"),
+    ]:
+        vals = []
+        for language in ("English", "Telugu"):
+            value = evidence[language][key]
+            if key in ("generated", "predictions"):
+                ok = all(value.values())
+            elif key == "checkpoints":
+                ok = bool(value)
+            else:
+                ok = bool(value)
+            vals.append(_status(ok))
+        status_rows.append([label] + vals)
+    status_rows.append([
+        "Variance-adaptor PNG count",
+        str(evidence["English"]["plot_count"]),
+        str(evidence["Telugu"]["plot_count"]),
+    ])
+    status_table = Table(status_rows, colWidths=[245, 125, 125], repeatRows=1)
+    status_table.setStyle(TableStyle([
+        ("BACKGROUND", (0,0), (-1,0), colors.HexColor("#17365D")),
+        ("TEXTCOLOR", (0,0), (-1,0), colors.white),
+        ("FONTNAME", (0,0), (-1,0), "Helvetica-Bold"),
+        ("FONTSIZE", (0,0), (-1,-1), 8),
+        ("GRID", (0,0), (-1,-1), 0.35, colors.HexColor("#B8C2CC")),
+        ("VALIGN", (0,0), (-1,-1), "MIDDLE"),
+    ]))
+    story.append(status_table)
+    para(
+        "No claims about convergence, speech quality, pronunciation accuracy, "
+        "or native-speaker preference are made unless there are actual model "
+        "checkpoints, loss histories, generated waveforms, and documented "
+        "human evaluation observations."
+    )
 
-    # Page Break for Plots
-    story.append(PageBreak())
+    story.append(Paragraph("4. Required evaluation and analysis", styles["Section"]))
+    para(
+        "The assignment requires five English and five Telugu test utterances, "
+        "with duration, pitch and energy prediction plots for every utterance. "
+        "This corresponds to 10 WAV files, 10 genuine prediction files and "
+        "30 variance-adaptor plots. The file-presence checks above describe "
+        "what exists locally at report-generation time; a file's presence "
+        "alone does not establish perceptual quality."
+    )
+    para(
+        "Listening-based pronunciation analysis should be completed by the "
+        "researcher and, ideally, native Telugu listeners. Record sentence ID, "
+        "pronunciation issues, intelligibility and any unusual prosody. "
+        "Do not infer these observations from plots alone."
+    )
 
-    # 5. Training Loss & Convergence Analysis
-    story.append(Paragraph("5. Training Methodology &amp; Loss Convergence Tracking", h1))
-    story.append(Paragraph(
-        "Both models are configured for Adam optimization (betas=[0.9, 0.98], eps=1e-9) with the Noam learning rate schedule (4000 warmup steps, d_model=256) "
-        "targeting 200,000 steps on NVIDIA GPU instances. The multi-task objective combines mel L1 loss, postnet mel loss, duration log-MSE, pitch MSE, and energy MSE with equal weighting (1.0).<br/>"
-        "All training steps and validation evaluations log loss statistics to <code>loss_history.npz</code> to produce genuine convergence curves.",
-        body
-    ))
+    story.append(Paragraph("5. Limitations and reproducibility", styles["Section"]))
+    para(
+        "Known data limitation: the inspected IndicTTS Telugu metadata does "
+        "not provide a stable speaker identifier. The Svarah grouping used "
+        "for separation is a demographic proxy unless the source provides "
+        "additional speaker-level identifiers. Report the distinction "
+        "explicitly when describing the evaluation protocol."
+    )
+    para(
+        "Reproduction requires the repository revision, Python and package "
+        "versions, dataset revision/split, random seed, exact manifest files, "
+        "alignment tool and model version, acoustic feature settings, training "
+        "configuration, checkpoint step, and inference command. Preserve "
+        "these in experiment metadata alongside each run."
+    )
 
-    def _get_image_flowable(path, width, height, placeholder_text):
-        if os.path.exists(path):
-            return Image(path, width=width, height=height)
-        return Table(
-            [[Paragraph(f"<font color='#6b7280' size='8'><i>{placeholder_text}</i></font>", author_style)]],
-            colWidths=[width], rowHeights=[height],
-            style=TableStyle([
-                ('BACKGROUND', (0,0), (-1,-1), colors.HexColor("#f3f4f6")),
-                ('BOX', (0,0), (-1,-1), 1, colors.HexColor("#d1d5db")),
-                ('ALIGN', (0,0), (-1,-1), 'CENTER'),
-                ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
-            ])
+    story.append(Paragraph("6. Current completion statement", styles["Section"]))
+    all_full = all(ev["full_targets_met"] for ev in evidence.values())
+    all_ckpt = all(bool(ev["checkpoints"]) for ev in evidence.values())
+    all_audio = all(all(ev["generated"].values()) for ev in evidence.values())
+    all_plots = sum(ev["plot_count"] for ev in evidence.values()) >= 30
+    if all_full and all_ckpt and all_audio and all_plots:
+        para(
+            "The local artifact checks detect full-duration dataset metadata, "
+            "checkpoints, all required WAV outputs and at least 30 variance "
+            "plots. Inspect the experiment logs and listen to the generated "
+            "audio before treating the experimental evaluation as complete."
+        )
+    else:
+        para(
+            "<b>Experimental work is incomplete.</b> One or more of the full "
+            "dataset, checkpoint, generated-audio or plot requirements are "
+            "not present in the current workspace. This report is a truthful "
+            "implementation/status report, not a claim that model training "
+            "or final synthesis has completed."
         )
 
-    loss_images = [
-        [Paragraph("<b>English Training Loss</b>", h2), Paragraph("<b>English Validation Loss</b>", h2)],
-        [_get_image_flowable("Results/English/training_loss.png", 240, 110, "English Training Loss Curve<br/>(Generated after GPU training)"),
-         _get_image_flowable("Results/English/validation_loss.png", 240, 110, "English Validation Loss Curve<br/>(Generated after GPU training)")],
-        [Paragraph("<b>Telugu Training Loss</b>", h2), Paragraph("<b>Telugu Validation Loss</b>", h2)],
-        [_get_image_flowable("Results/Telugu/training_loss.png", 240, 110, "Telugu Training Loss Curve<br/>(Generated after GPU training)"),
-         _get_image_flowable("Results/Telugu/validation_loss.png", 240, 110, "Telugu Validation Loss Curve<br/>(Generated after GPU training)")],
-    ]
-    t_loss = Table(loss_images, colWidths=[260, 260])
-    t_loss.setStyle(TableStyle([
-        ('ALIGN', (0,0), (-1,-1), 'CENTER'),
-        ('BOTTOMPADDING', (0,0), (-1,-1), 2),
-    ]))
-    story.append(t_loss)
-    story.append(Spacer(1, 8))
-
-    story.append(Paragraph(
-        "<b>Verification &amp; Loss Tracking Protocol:</b> Training progress is checkpointed every 2,000 steps with validation evaluated against the held-out 1-hour split. "
-        "No synthetic loss curves or artificial projections are presented; all curves are generated strictly from actual training run logs using <code>utils/plot_losses.py</code>.",
-        body
-    ))
-
-    # 6. Evaluation of Test Sentences & Pronunciation Observations
-    story.append(Paragraph("6. Test Sentence Inference &amp; Pronunciation Observations", h1))
-    story.append(Paragraph(
-        "All 10 required test sentences were synthesized using the trained models and inverted to audio waveforms:",
-        body
-    ))
-
-    eval_table = [
-        ["ID", "Language", "Sentence Text", "Observed Pronunciation & Acoustic Properties"],
-        ["E1", "English", "The antidisestablishmentarianism movement gained...", "Clear articulation of the 28-letter polysyllabic compound without rhythm breakdown."],
-        ["E2a", "English", "The orchestra's conduct during the ceremony...", "Noun sense of 'conduct' (/ˈkɒn.dʌkt/) with initial stress; natural pause before 'during'."],
-        ["E2b", "English", "The researchers will conduct an experiment...", "Verb sense (/kənˈdʌkt/) with stress shifting to second syllable; pitch contour reflects assertion."],
-        ["E3", "English", "The rhyth  m of the orchestra changed unexpectedly.", "Preserved double space 'rhyth  m' produces a slight lengthened closure (~40ms) without crashing."],
-        ["E4", "English", "The meeting will start at 10:45 AM on 12 November 2026, so andaroo...", "Numbers expanded fluently ('ten forty-five A M', 'twelve November'); Indian loan word 'andaroo' synthesized naturally."],
-        ["T1", "Telugu", "న్యూరోఫార్మకోలాజికల్ పరిశోధనలో నూతన ఔషధాల...", "Complex technical loan word 'న్యూరోఫార్మకోలాజికల్' rendered crisply; mahaprana 'భా' in 'ప్రభావాన్ని' preserved."],
-        ["T2a", "Telugu", "తాడుపై అతని పట్టు చాలా బలంగా ఉంది.", "Noun 'పట్టు' (grip) features distinct geminate retroflex stop 'ట్ట' with lengthened closure."],
-        ["T2b", "Telugu", "ఆమె పట్టు చీరను ధరించి వేడుకకు వచ్చింది.", "Noun 'పట్టు' (silk) parsed in adjective position; retroflex aspiration in 'ధరించి' clearly voiced."],
-        ["T3", "Telugu", "పులి అడ  విలో నిశ్శబ్దంగా నడిచింది.", "Unusual intra-word spacing 'అడ  విలో' handled robustly; geminate sibilant 'శ్శ' in 'నిశ్శబ్దంగా' has extended duration."],
-        ["T4", "Telugu", "ఈ సమావేశం 2026 నవంబర్ 12వ తేదీ ఉదయం 10:45...", "Temporal expression and date-time conjunct 'ప్రారంభమవుతుంది' synthesized with authentic Telugu cadence."]
-    ]
-    t_eval = Table(eval_table, colWidths=[25, 45, 230, 220])
-    t_eval.setStyle(TableStyle([
-        ('BACKGROUND', (0,0), (-1,0), colors.HexColor("#1e3a8a")),
-        ('TEXTCOLOR', (0,0), (-1,0), colors.whitesmoke),
-        ('ALIGN', (0,0), (1,-1), 'CENTER'),
-        ('FONTNAME', (0,0), (-1,0), 'Helvetica-Bold'),
-        ('FONTSIZE', (0,0), (-1,-1), 7.5),
-        ('BOTTOMPADDING', (0,0), (-1,-1), 3),
-        ('GRID', (0,0), (-1,-1), 0.5, colors.HexColor("#cbd5e1")),
-    ]))
-    story.append(t_eval)
-
-    # Page Break for Variance Plots
-    story.append(PageBreak())
-
-    # 7. Variance Adaptor Analysis (30 Plots Overview)
-    story.append(Paragraph("7. Variance Adaptor Visualisation &amp; Prosodic Analysis", h1))
-    story.append(Paragraph(
-        "A key deliverable of this research is empirical inspection of the Variance Adaptor outputs (Duration, Pitch F0, and Energy). "
-        "Below are representative predictions for English sample E1 and Telugu sample T1 from the 30 generated plots:",
-        body
-    ))
-
-    var_images = [
-        [Paragraph("<b>English E1: Duration Prediction</b>", h2), Paragraph("<b>Telugu T1: Duration Prediction</b>", h2)],
-        [_get_image_flowable("Results/English/variance_adaptor_plots/duration/E1_duration.png", 250, 75, "E1 Duration Trajectory<br/>(Generated after inference)"),
-         _get_image_flowable("Results/Telugu/variance_adaptor_plots/duration/T1_duration.png", 250, 75, "T1 Duration Trajectory<br/>(Generated after inference)")],
-        [Paragraph("<b>English E1: Pitch (F0) Contour</b>", h2), Paragraph("<b>Telugu T1: Pitch (F0) Contour</b>", h2)],
-        [_get_image_flowable("Results/English/variance_adaptor_plots/pitch/E1_pitch.png", 250, 75, "E1 Pitch Contour<br/>(Generated after inference)"),
-         _get_image_flowable("Results/Telugu/variance_adaptor_plots/pitch/T1_pitch.png", 250, 75, "T1 Pitch Contour<br/>(Generated after inference)")],
-        [Paragraph("<b>English E1: Energy Contour</b>", h2), Paragraph("<b>Telugu T1: Energy Contour</b>", h2)],
-        [_get_image_flowable("Results/English/variance_adaptor_plots/energy/E1_energy.png", 250, 75, "E1 Energy Contour<br/>(Generated after inference)"),
-         _get_image_flowable("Results/Telugu/variance_adaptor_plots/energy/T1_energy.png", 250, 75, "T1 Energy Contour<br/>(Generated after inference)")],
-    ]
-    t_var = Table(var_images, colWidths=[260, 260])
-    t_var.setStyle(TableStyle([
-        ('ALIGN', (0,0), (-1,-1), 'CENTER'),
-        ('BOTTOMPADDING', (0,0), (-1,-1), 1),
-    ]))
-    story.append(t_var)
-    story.append(Spacer(1, 6))
-
-    story.append(Paragraph(
-        "<b>Acoustic Observations:</b><br/>"
-        "• <b>Duration Adaptor:</b> Vowels and diphthongs systematically receive 4–8 frames (~45–90ms), whereas unvoiced stop closures receive 1–3 frames (~11–35ms). "
-        "In Telugu, geminate consonants (ottulu) correctly exhibit doubled duration targets.<br/>"
-        "• <b>Pitch Predictor:</b> Unvoiced regions (fricatives, stops, silent pauses) are set to 0 Hz. Voiced vowels display smooth fundamental frequency arcs (120–240 Hz), "
-        "with natural declination towards phrase boundaries.<br/>"
-        "• <b>Energy Predictor:</b> Energy closely correlates with vocal tract amplitude, peaking at vowel nuclei and declining during consonant closures.",
-        body
-    ))
-
-    # 8. Cross-Lingual Comparison, Limitations & Future Work
-    story.append(Paragraph("8. Comparative Analysis, Limitations &amp; Future Work", h1))
-    story.append(Paragraph(
-        "<b>Cross-Lingual Findings:</b> The grapheme-based approach for Telugu proved surprisingly effective, validating that phonemically transparent scripts "
-        "can bypass complex G2P pipelines when sufficient acoustic data is provided. However, English models demonstrated sharper duration boundaries due to MFA's phonemic alignment.<br/><br/>"
-        "<b>Known Limitations:</b><br/>"
-        "1. <i>Subsampled Corpus Duration:</i> 5 hours per language is sufficient for proof-of-concept synthesis, but produces slight robotic resonance compared to 24+ hour models.<br/>"
-        "2. <i>Vocoder Universality:</i> Universal HiFi-GAN performs well on English, but a Telugu-finetuned vocoder would improve retroflex consonant crispness.<br/><br/>"
-        "<b>Future Enhancements:</b> (1) Fine-tuning a language-specific HiFi-GAN vocoder on Telugu studio audio; (2) Incorporating multi-speaker d-vectors; "
-        "(3) Testing CTC-segmentation with IndicWav2Vec for fine-grained akshara alignment.",
-        body
-    ))
-
-    # 9. Reproducibility & Commands
-    story.append(Paragraph("9. Reproducibility Instructions", h1))
-    story.append(Paragraph(
-        "The complete implementation is self-contained and reproducible. Key commands:<br/>"
-        "• <i>Environment:</i> <code>pip install -r requirements.txt</code><br/>"
-        "• <i>English Preprocessing:</i> <code>python English/preprocess.py -c English/config/preprocess.yaml</code><br/>"
-        "• <i>Telugu Preprocessing:</i> <code>python Telugu/preprocess.py -c Telugu/config/preprocess.yaml</code><br/>"
-        "• <i>English Training:</i> <code>python English/train.py -p English/config/preprocess.yaml -m English/config/model.yaml -t English/config/train.yaml</code><br/>"
-        "• <i>Telugu Training:</i> <code>python Telugu/train.py -p Telugu/config/preprocess.yaml -m Telugu/config/model.yaml -t Telugu/config/train.yaml</code><br/>"
-        "• <i>Inference:</i> <code>python English/inference.py</code> &amp; <code>python Telugu/inference.py</code><br/>"
-        "• <i>Plots:</i> <code>python utils/plot_variance.py</code> &amp; <code>python utils/plot_losses.py</code>",
-        callout
-    ))
-
-    # 10. References
-    story.append(Paragraph("10. References", h1))
-    story.append(Paragraph(
-        "[1] Ren, Y., Hu, C., Tan, X., Qin, T., Zhao, S., Zhao, Z., &amp; Liu, T. Y. (2020). FastSpeech 2: Fast and high-quality end-to-end text to speech. <i>arXiv preprint arXiv:2006.04558</i>.<br/>"
-        "[2] Ming024. (2021). FastSpeech 2 PyTorch Implementation. GitHub repository: <i>https://github.com/ming024/FastSpeech2</i>.<br/>"
-        "[3] Kong, J., Kim, J., &amp; Bae, J. (2020). HiFi-GAN: Generative adversarial networks for efficient and high fidelity speech synthesis. <i>NeurIPS 2020</i>.<br/>"
-        "[4] Baby, A., et al. (2016). Indic TTS Database: Multi-speaker speech database for Indian languages. <i>INTERSPEECH</i>.<br/>"
-        "[5] AI4Bharat. (2022). Svarah: Evaluating English ASR Systems on Indian-Accented English.",
-        body
-    ))
+    story.append(Spacer(1, 12))
+    para(
+        "References: Ren et al., FastSpeech 2 (2020), arXiv:2006.04558; "
+        "the original FastSpeech 2 reference implementation by ming024; "
+        "AI4Bharat Svarah; and SPRINGLab IndicTTS Telugu.",
+        "Small"
+    )
 
     doc.build(story)
-    print(f"Technical report successfully created at: {pdf_path}")
+    print(f"Evidence-based technical report created: {pdf_path}")
 
 
 if __name__ == "__main__":
     build_technical_report()
-

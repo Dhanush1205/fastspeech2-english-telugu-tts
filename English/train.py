@@ -244,19 +244,31 @@ def train(args):
         language="en",
     )
 
+    if len(train_dataset) == 0 or len(val_dataset) == 0:
+        raise RuntimeError(
+            f"Cannot train with empty datasets: train={len(train_dataset)}, val={len(val_dataset)}. "
+            "Verify manifests and preprocessing outputs."
+        )
+    # Smoke-test datasets may contain fewer items than the configured full-run batch size.
+    # Reduce the batch size and keep the final partial batch instead of dropping all samples.
+    effective_batch_size = min(batch_size, len(train_dataset))
+    logger.info(
+        f"Effective batch size: {effective_batch_size} "
+        f"(configured={batch_size}, train_samples={len(train_dataset)})"
+    )
     workers = 0 if (os.name == "nt" or device.type == "cpu") else 4
     train_loader = DataLoader(
         train_dataset,
-        batch_size=batch_size,
+        batch_size=effective_batch_size,
         shuffle=True,
         collate_fn=collate_fn,
         num_workers=workers,
         pin_memory=(device.type == "cuda"),
-        drop_last=True,
+        drop_last=False,
     )
     val_loader = DataLoader(
         val_dataset,
-        batch_size=batch_size,
+        batch_size=min(batch_size, len(val_dataset)),
         shuffle=False,
         collate_fn=collate_fn,
         num_workers=0 if (os.name == "nt" or device.type == "cpu") else 2,

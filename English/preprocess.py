@@ -443,44 +443,29 @@ def parse_textgrid_durations(
     phonemes: List[str],
     hop_length: int = 256,
     sr: int = 22050,
+    mel_frames: Optional[int] = None,
 ) -> np.ndarray:
-    """Parse MFA TextGrid to extract phoneme durations in frames.
-    
-    Args:
-        textgrid_path: Path to .TextGrid file from MFA
-        phonemes: List of expected phonemes for verification
-        hop_length: Hop length used for mel extraction
-        sr: Sampling rate
-        
-    Returns:
-        Duration array [n_phonemes] in frames
+    """Map MFA phone intervals onto the exact model token sequence.
+
+    Punctuation tokens absent from the phones tier get one frame each, followed
+    by EOS. Phone labels must match the G2P sequence; mismatches are rejected.
     """
     import tgt
-    
+    from data_prep.duration_alignment import english_token_durations
+
     tg = tgt.io.read_textgrid(textgrid_path)
-    
-    # Find the phones tier
-    phone_tier = None
-    for tier in tg.tiers:
-        if "phones" in tier.name.lower() or "phone" in tier.name.lower():
-            phone_tier = tier
-            break
-    
+    phone_tier = next(
+        (tier for tier in tg.tiers if "phone" in tier.name.lower()),
+        None,
+    )
     if phone_tier is None:
         raise ValueError(f"No phones tier found in {textgrid_path}")
-    
-    # Extract durations in frames
-    frame_duration = hop_length / sr  # seconds per frame
-    durations = []
-    
-    for interval in phone_tier:
-        if interval.text not in ["", "sp", "sil", "SIL", "SPN"]:
-            duration_sec = interval.duration()
-            duration_frames = int(np.round(duration_sec / frame_duration))
-            duration_frames = max(1, duration_frames)  # At least 1 frame
-            durations.append(duration_frames)
-    
-    return np.array(durations, dtype=np.int64)
+    if mel_frames is None or mel_frames <= 0:
+        raise ValueError("mel_frames must be supplied to align durations to the mel target")
+    return english_token_durations(
+        phonemes, phone_tier, mel_frames,
+        hop_length=hop_length, sample_rate=sr,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -574,19 +559,39 @@ def preprocess_sample(
         np.save(pitch_dir / f"{sample_id}.npy", f0)
         np.save(energy_dir / f"{sample_id}.npy", energy)
         
-        # Duration from MFA (if available)
-        duration = None
-        if mfa_dir:
-            tg_path = os.path.join(mfa_dir, f"{sample_id}.TextGrid")
-            if os.path.exists(tg_path):
-                try:
-                    duration = parse_textgrid_durations(tg_path, [], hop, sr)
-                    dur_dir = out_dir / "duration"
-                    dur_dir.mkdir(parents=True, exist_ok=True)
-                    np.save(dur_dir / f"{sample_id}.npy", duration)
-                except Exception as e:
-                    logger.warning(f"Duration extraction failed for {sample_id}: {e}")
-        
+        # Forced-alignment duration supervision is mandatory for FastSpeech 2.
+        if not mfa_dir:
+            raise RuntimeError("MFA TextGrid directory is required; duration targets cannot be omitted.")
+        grid_candidates = list(Path(mfa_dir).rglob(f"{sample_id}.TextGrid"))
+        grid_candidates += list(Path(mfa_dir).rglob(f"{sample_id}.textgrid"))
+        if not grid_candidates:
+            raise FileNotFoundError(f"No MFA TextGrid found for {sample_id} under {mfa_dir}")
+
+        from functools import lru_cache
+        from English.text_processing import clean_english_text, EnglishPhonemizer
+
+        @lru_cache(maxsize=1)
+        def _phonemizer():
+            instance = EnglishPhonemizer()
+            if getattr(instance, "_g2p", None) is None:
+                raise RuntimeError("g2p_en is unavailable; cannot match MFA phone durations to model tokens.")
+            return instance
+
+        normalized_text = clean_english_text(sample["text"])
+        expected_phonemes = _phonemizer().text_to_phonemes(normalized_text)
+        duration = parse_textgrid_durations(
+            str(grid_candidates[0]), expected_phonemes, hop, sr, mel_frames=T
+        )
+        if len(duration) != len(expected_phonemes) + 1 or int(duration.sum()) != int(T):
+            raise ValueError(
+                f"Duration target integrity failed for {sample_id}: "
+                f"tokens={len(expected_phonemes)+1}, duration_items={len(duration)}, "
+                f"duration_sum={int(duration.sum())}, mel_frames={T}"
+            )
+        dur_dir = out_dir / "duration"
+        dur_dir.mkdir(parents=True, exist_ok=True)
+        np.save(dur_dir / f"{sample_id}.npy", duration)
+
         return {
             "id": sample_id,
             "text": sample["text"],
@@ -614,6 +619,13 @@ def run_preprocessing(args):
     logger.info(f"Output dir: {args.output_dir}")
     logger.info(f"Random seed: {args.seed}")
     
+    # Duration supervision is required by FastSpeech 2's Length Regulator.
+    if not args.mfa_dir or not Path(args.mfa_dir).is_dir():
+        raise RuntimeError(
+            "A completed MFA TextGrid directory is required. Run "
+            "data_prep/align_dataset.py --language english first and pass --mfa_dir."
+        )
+
     # Load config
     config = load_config(args.config)
     
@@ -681,6 +693,18 @@ def run_preprocessing(args):
         if result:
             metadata.append(result)
     
+    # Never allow partially preprocessed features into training.
+    if len(metadata) != len(all_samples) or any(not item.get("has_duration") for item in metadata):
+        raise RuntimeError(
+            f"Preprocessing incomplete: {len(metadata)}/{len(all_samples)} samples succeeded. "
+            "Training is blocked until every sample has valid duration alignment."
+        )
+    for sample in all_samples:
+        for feature in ("mel", "pitch", "energy", "duration"):
+            feature_path = Path(args.output_dir) / feature / f'{sample["id"]}.npy'
+            if not feature_path.is_file():
+                raise FileNotFoundError(f"Required feature missing: {feature_path}")
+
     # Compute normalization statistics
     logger.info("Computing normalization statistics...")
     output_dir = Path(args.output_dir)
