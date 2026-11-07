@@ -63,6 +63,8 @@ def parse_args():
                         default="config/train.yaml")
     parser.add_argument("--restore_step", type=int, default=0,
                         help="Resume training from this checkpoint step")
+    parser.add_argument("--total_step", type=int, default=None,
+                        help="Override total_step from train.yaml (e.g. for benchmark runs)")
     return parser.parse_args()
 
 
@@ -178,7 +180,7 @@ def train(args):
 
     # Training hyperparameters
     batch_size = train_cfg["optimizer"]["batch_size"]
-    total_step = train_cfg["step"]["total_step"]
+    total_step = args.total_step if args.total_step is not None else train_cfg["step"]["total_step"]
     log_step = train_cfg["step"]["log_step"]
     val_step = train_cfg["step"]["val_step"]
     save_step = train_cfg["step"]["save_step"]
