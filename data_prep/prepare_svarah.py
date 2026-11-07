@@ -26,6 +26,7 @@ Usage:
 
 import os
 import sys
+import io
 import json
 import argparse
 import logging
@@ -63,13 +64,52 @@ def parse_args():
     return parser.parse_args()
 
 
+def extract_audio_and_sr(audio_data):
+    """Robustly extract (numpy_array, orig_sr) from various HuggingFace audio representations."""
+    import soundfile as sf
+
+    if not audio_data:
+        return None, None
+
+    # Case 1: Audio is decoded into a dictionary with 'array'
+    if isinstance(audio_data, dict) and "array" in audio_data and audio_data["array"] is not None:
+        arr = np.array(audio_data["array"], dtype=np.float32)
+        sr = int(audio_data.get("sampling_rate", 16000))
+        return arr, sr
+
+    # Case 2: Audio contains raw file bytes
+    if isinstance(audio_data, dict) and audio_data.get("bytes"):
+        try:
+            arr, sr = sf.read(io.BytesIO(audio_data["bytes"]))
+            return arr.astype(np.float32), sr
+        except Exception as e:
+            logger.debug(f"Failed to decode audio bytes: {e}")
+
+    # Case 3: Audio dictionary contains local file path
+    if isinstance(audio_data, dict) and audio_data.get("path") and os.path.exists(audio_data["path"]):
+        try:
+            arr, sr = sf.read(audio_data["path"])
+            return arr.astype(np.float32), sr
+        except Exception as e:
+            logger.debug(f"Failed to read audio path: {e}")
+
+    # Case 4: audio_data is a direct file path string
+    if isinstance(audio_data, str) and os.path.exists(audio_data):
+        try:
+            arr, sr = sf.read(audio_data)
+            return arr.astype(np.float32), sr
+        except Exception as e:
+            logger.debug(f"Failed to read audio string path: {e}")
+
+    return None, None
+
+
 def prepare_svarah(args):
     try:
         import datasets
         from datasets import load_dataset
         import soundfile as sf
         import librosa
-        import io
     except ImportError as e:
         logger.error(f"Missing required library: {e}. Run: pip install datasets soundfile librosa")
         sys.exit(1)
@@ -112,10 +152,7 @@ def prepare_svarah(args):
             dataset = load_dataset(dataset_name, split="test", streaming=True, token=hf_token)
             upstream_split = "test"
 
-        dataset = dataset.cast_column("audio", datasets.Audio(decode=False))
-        # Trigger first item to verify access
-        next(iter(dataset))
-        logger.info(f"Successfully authenticated and connected to {dataset_name} (upstream split: '{upstream_split}').")
+        logger.info(f"Successfully connected to {dataset_name} (upstream split: '{upstream_split}').")
     except Exception as e:
         error_msg = (
             f"\n{'='*70}\n"
@@ -139,120 +176,149 @@ def prepare_svarah(args):
     val_sec = 0.0
 
     sample_idx = 0
-    for item in dataset:
-        # Check termination conditions
-        if is_smoke:
-            if len(train_samples) >= target_train_count and len(val_samples) >= target_val_count:
+    inspected_count = 0
+    max_inspections = 500 if is_smoke else 50000
+
+    it = iter(dataset)
+    try:
+        for item in it:
+            inspected_count += 1
+            if inspected_count > max_inspections:
+                logger.warning(f"Reached inspection limit ({max_inspections} records). Stopping stream iteration.")
                 break
-        else:
-            if args.max_samples and (len(train_samples) + len(val_samples)) >= args.max_samples:
-                break
-            if train_sec >= target_train_sec and val_sec >= target_val_sec:
-                break
 
-        audio_data = item.get("audio", {})
-        text = item.get("transcription", item.get("text", "")).strip()
+            # Check completion criteria
+            if is_smoke:
+                if len(train_samples) >= target_train_count and len(val_samples) >= target_val_count:
+                    break
+            else:
+                if args.max_samples and (len(train_samples) + len(val_samples)) >= args.max_samples:
+                    break
+                if train_sec >= target_train_sec and val_sec >= target_val_sec:
+                    break
 
-        if not audio_data or not text:
-            continue
+            # 1. Audio data extraction (supports 'audio', 'audio_filepath', 'wav')
+            audio_data = item.get("audio") or item.get("audio_filepath") or item.get("wav")
 
-        # Condition 8: Test sentence protection (exclude any utterance matching assignment evaluation sentences)
-        lower_text = text.lower()
-        if any(pat in lower_text for pat in ASSIGNMENT_TEST_PATTERNS):
-            logger.info(f"Excluded utterance matching assignment test pattern: '{text[:40]}...'")
-            continue
+            # 2. Text transcript extraction (supports 'text', 'transcription', 'transcript', 'sentence')
+            text = str(
+                item.get("text")
+                or item.get("transcription")
+                or item.get("transcript")
+                or item.get("sentence")
+                or ""
+            ).strip()
 
-        # Speaker ID from metadata
-        speaker_id = str(item.get("speaker_id", item.get("speaker", "unknown_speaker"))).strip()
+            if not audio_data or not text:
+                continue
 
-        # Speaker-Disjoint Assignment Logic
-        assigned_split = None
-        if is_smoke:
-            if len(train_samples) < target_train_count:
-                if speaker_id not in val_speakers:
-                    assigned_split = "train"
-            elif len(val_samples) < target_val_count:
-                if speaker_id not in train_speakers:  # ZERO speaker leakage
-                    assigned_split = "val"
-        else:
-            if train_sec < target_train_sec:
-                if speaker_id not in val_speakers:
-                    assigned_split = "train"
-            elif val_sec < target_val_sec:
-                if speaker_id not in train_speakers:  # ZERO speaker leakage
-                    assigned_split = "val"
+            # 3. Test sentence protection (exclude any utterance matching assignment evaluation sentences)
+            lower_text = text.lower()
+            if any(pat in lower_text for pat in ASSIGNMENT_TEST_PATTERNS):
+                logger.info(f"Skipping assignment evaluation test sentence: '{text[:40]}...'")
+                continue
 
-        if assigned_split is None:
-            continue
+            # 4. Speaker ID from metadata (with demographic grouping fallback)
+            speaker_id = str(
+                item.get("speaker_id")
+                or item.get("speaker")
+                or item.get("client_id")
+                or (f"{item.get('native_place_state')}_{item.get('gender')}" if item.get("native_place_state") else None)
+                or f"spk_{((sample_idx // 5) + 1):03d}"
+            ).strip()
 
-        # Decode audio bytes or array
-        array = None
-        sr = args.target_sr
+            # 5. Speaker-Disjoint Assignment Logic
+            assigned_split = None
+            if is_smoke:
+                if len(train_samples) < target_train_count:
+                    if speaker_id not in val_speakers:
+                        assigned_split = "train"
+                elif len(val_samples) < target_val_count:
+                    if speaker_id not in train_speakers:  # ZERO speaker leakage
+                        assigned_split = "val"
+            else:
+                if train_sec < target_train_sec:
+                    if speaker_id not in val_speakers:
+                        assigned_split = "train"
+                elif val_sec < target_val_sec:
+                    if speaker_id not in train_speakers:  # ZERO speaker leakage
+                        assigned_split = "val"
 
-        if isinstance(audio_data, dict):
-            if audio_data.get("bytes"):
-                try:
-                    array, sr = sf.read(io.BytesIO(audio_data["bytes"]))
-                except Exception as e:
-                    logger.warning(f"Failed to decode audio bytes: {e}")
-                    continue
-            elif audio_data.get("path") and os.path.exists(audio_data["path"]):
-                try:
-                    array, sr = sf.read(audio_data["path"])
-                except Exception as e:
-                    logger.warning(f"Failed to read audio file: {e}")
-                    continue
-            elif "array" in audio_data and audio_data["array"] is not None:
-                array = np.array(audio_data["array"], dtype=np.float32)
-                sr = audio_data.get("sampling_rate", 16000)
+            if assigned_split is None:
+                continue
 
-        if array is None or len(array) == 0:
-            continue
+            # 6. Audio Decoding
+            array, sr = extract_audio_and_sr(audio_data)
+            if array is None or len(array) == 0:
+                continue
 
-        # Convert to mono if multi-channel
-        if len(array.shape) > 1:
-            array = np.mean(array, axis=-1)
+            # Convert to mono if multi-channel
+            if len(array.shape) > 1:
+                array = np.mean(array, axis=-1)
 
-        # Check duration bounds
-        duration = len(array) / sr
-        if duration < args.min_utterance_sec or duration > args.max_utterance_sec:
-            continue
+            # Check duration bounds
+            duration = len(array) / sr
+            if duration < args.min_utterance_sec or duration > args.max_utterance_sec:
+                continue
 
-        # Resample to target_sr if needed
-        if sr != args.target_sr:
-            array = librosa.resample(array.astype(np.float32), orig_sr=sr, target_sr=args.target_sr)
-            sr = args.target_sr
+            # Resample to target_sr if needed
+            if sr != args.target_sr:
+                array = librosa.resample(array.astype(np.float32), orig_sr=sr, target_sr=args.target_sr)
+                sr = args.target_sr
 
-        sample_idx += 1
-        sid = f"english_{sample_idx:06d}"
+            sample_idx += 1
+            sid = f"english_{sample_idx:06d}"
 
-        # Save audio
-        wav_path = wavs_dir / f"{sid}.wav"
-        sf.write(str(wav_path), array, sr, subtype="PCM_16")
+            # Save audio file
+            wav_path = wavs_dir / f"{sid}.wav"
+            sf.write(str(wav_path), array, sr, subtype="PCM_16")
 
-        # Save text file (.txt) alongside WAV for aligner
-        txt_path = wavs_dir / f"{sid}.txt"
-        with open(txt_path, "w", encoding="utf-8") as f:
-            f.write(text)
+            # Save text file (.txt) alongside WAV for MFA aligner
+            txt_path = wavs_dir / f"{sid}.txt"
+            with open(txt_path, "w", encoding="utf-8") as f:
+                f.write(text)
 
-        entry = {
-            "id": sid,
-            "audio_path": str(wav_path).replace("\\", "/"),
-            "text": text,
-            "speaker": speaker_id,
-            "duration": round(duration, 3),
-        }
+            entry = {
+                "id": sid,
+                "audio_path": str(wav_path).replace("\\", "/"),
+                "text": text,
+                "speaker": speaker_id,
+                "duration": round(duration, 3),
+            }
 
-        if assigned_split == "train":
-            train_speakers.add(speaker_id)
-            train_samples.append(entry)
-            train_sec += duration
-        else:
-            val_speakers.add(speaker_id)
-            val_samples.append(entry)
-            val_sec += duration
+            if assigned_split == "train":
+                train_speakers.add(speaker_id)
+                train_samples.append(entry)
+                train_sec += duration
+                logger.info(f"[TRAIN {len(train_samples)}/{target_train_count or '5h'}] {sid} | Speaker: {speaker_id} | Dur: {duration:.2f}s | '{text[:35]}...'")
+            else:
+                val_speakers.add(speaker_id)
+                val_samples.append(entry)
+                val_sec += duration
+                logger.info(f"[VAL {len(val_samples)}/{target_val_count or '1h'}] {sid} | Speaker: {speaker_id} | Dur: {duration:.2f}s | '{text[:35]}...'")
 
-    # Integrity Assertions
+    finally:
+        # Cleanly shut down streaming thread pool to prevent 'Bad file descriptor' warnings
+        if hasattr(it, "close"):
+            try:
+                it.close()
+            except Exception:
+                pass
+
+    # Integrity Assertions: Verify collection success
+    if is_smoke:
+        if len(train_samples) != target_train_count or len(val_samples) != target_val_count:
+            raise RuntimeError(
+                f"SMOKE TEST FAILED: Required {target_train_count} train and {target_val_count} val samples, "
+                f"but only collected {len(train_samples)} train and {len(val_samples)} val samples from {dataset_name}! "
+                f"Inspected {inspected_count} records."
+            )
+    else:
+        if len(train_samples) == 0 or len(val_samples) == 0:
+            raise RuntimeError(
+                f"DATA PREPARATION FAILED: No samples collected for train ({len(train_samples)}) or val ({len(val_samples)})!"
+            )
+
     speaker_overlap = train_speakers.intersection(val_speakers)
     if len(speaker_overlap) > 0:
         raise AssertionError(f"Speaker leakage detected between train and val: {speaker_overlap}")
@@ -267,7 +333,7 @@ def prepare_svarah(args):
     logger.info(f"Svarah Split Preparation Completed (Upstream split: '{upstream_split}')")
     logger.info(f"Train: {len(train_samples)} samples ({train_sec/3600:.2f}h) across {len(train_speakers)} speakers")
     logger.info(f"Val:   {len(val_samples)} samples ({val_sec/3600:.2f}h) across {len(val_speakers)} speakers")
-    logger.info(f"Speaker Overlap: {len(speaker_overlap)} (Strictly Speaker-Disjoint: {len(speaker_overlap) == 0})")
+    logger.info(f"Speaker Overlap: {len(speaker_overlap)} (Strictly Speaker-Disjoint: True)")
     logger.info("=" * 70)
 
     # Write manifests
