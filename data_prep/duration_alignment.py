@@ -41,7 +41,7 @@ def rescale_token_durations(durations, target_frames: int) -> np.ndarray:
     return result.astype(np.int64)
 
 
-def english_token_durations(expected_tokens, aligned_intervals, mel_frames: int) -> np.ndarray:
+def english_token_durations(expected_tokens, aligned_intervals, mel_frames: int, hop_length: int = 256, sample_rate: int = 22050) -> np.ndarray:
     """Map an MFA ARPABET phones tier onto the repository's G2P token sequence.
 
     Punctuation tokens are not represented in the ARPABET phones tier and get
@@ -61,7 +61,7 @@ def english_token_durations(expected_tokens, aligned_intervals, mel_frames: int)
         if label in SILENCE_LABELS:
             continue
         actual_labels.append(label.upper())
-        aligned_durations.append(max(1, int(round(interval.duration() * 22050 / 256))))
+        aligned_durations.append(max(1, int(round(interval.duration() * sample_rate / hop_length))))
 
     if actual_labels != expected_phones:
         limit = min(len(actual_labels), len(expected_phones))
@@ -87,7 +87,7 @@ def english_token_durations(expected_tokens, aligned_intervals, mel_frames: int)
     return rescale_token_durations(token_durations, mel_frames)
 
 
-def telugu_token_durations(normalized_text: str, aligned_intervals, mel_frames: int) -> np.ndarray:
+def telugu_token_durations(normalized_text: str, aligned_intervals, mel_frames: int, hop_length: int = 256, sample_rate: int = 22050) -> np.ndarray:
     """Map IndicMFA grapheme intervals to Unicode codepoint tokens plus EOS.
 
     The alignment corpus contains Telugu-block codepoints only. Whitespace,
@@ -105,7 +105,7 @@ def telugu_token_durations(normalized_text: str, aligned_intervals, mel_frames: 
             continue
         normalized_label = label
         actual_chars.append(normalized_label)
-        aligned_durations.append(max(1, int(round(interval.duration() * 22050 / 256))))
+        aligned_durations.append(max(1, int(round(interval.duration() * sample_rate / hop_length))))
 
     if actual_chars != expected_chars:
         limit = min(len(actual_chars), len(expected_chars))
