@@ -84,5 +84,71 @@ class TestSvarahAudio(unittest.TestCase):
 
 
 
+class MockInterval:
+    def __init__(self, text, duration):
+        self.text = text
+        self._duration = duration
+
+    def duration(self):
+        return self._duration
+
+
+class TestDurationAlignment(unittest.TestCase):
+    def test_rescale_preserves_frame_total(self):
+        from data_prep.duration_alignment import rescale_token_durations
+
+        result = rescale_token_durations([2, 3, 5], target_frames=100)
+        self.assertEqual(result.dtype, np.int64)
+        self.assertTrue(np.all(result >= 1))
+        self.assertEqual(int(result.sum()), 100)
+
+    def test_rescale_rejects_more_tokens_than_mel_frames(self):
+        from data_prep.duration_alignment import rescale_token_durations
+
+        with self.assertRaises(ValueError):
+            rescale_token_durations([1, 1, 1], target_frames=2)
+
+    def test_english_duration_vector_matches_g2p_tokens_and_eos(self):
+        from data_prep.duration_alignment import english_token_durations
+
+        tokens = ["HH", "AH0", " ", "EH1", "."]
+        intervals = [
+            MockInterval("HH", 0.05),
+            MockInterval("AH0", 0.08),
+            MockInterval("EH1", 0.07),
+        ]
+        result = english_token_durations(tokens, intervals, mel_frames=40)
+        self.assertEqual(len(result), len(tokens) + 1)
+        self.assertEqual(int(result.sum()), 40)
+
+    def test_english_duration_rejects_phone_mismatch(self):
+        from data_prep.duration_alignment import english_token_durations
+
+        with self.assertRaises(ValueError):
+            english_token_durations(
+                ["HH", "AH0"],
+                [MockInterval("HH", 0.05), MockInterval("AE1", 0.08)],
+                mel_frames=20,
+            )
+
+    def test_telugu_duration_vector_matches_unicode_tokens_and_eos(self):
+        from data_prep.duration_alignment import telugu_token_durations
+
+        normalized = "అ"
+        intervals = [MockInterval("అ", 0.1)]
+        result = telugu_token_durations(normalized, intervals, mel_frames=20)
+        self.assertEqual(len(result), len(normalized) + 1)
+        self.assertEqual(int(result.sum()), 20)
+
+    def test_telugu_duration_rejects_grapheme_mismatch(self):
+        from data_prep.duration_alignment import telugu_token_durations
+
+        with self.assertRaises(ValueError):
+            telugu_token_durations(
+                "అ", [MockInterval("ఆ", 0.1)], mel_frames=20
+            )
+
+
+
 if __name__ == "__main__":
     unittest.main()
