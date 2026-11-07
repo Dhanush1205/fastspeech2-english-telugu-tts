@@ -64,6 +64,24 @@ class TestSvarahAudio(unittest.TestCase):
         self.assertEqual(arr.shape, (16000,))
         np.testing.assert_allclose(arr, waveform)
 
+    def test_svarah_split_assignment_is_deterministic_and_group_consistent(self):
+        from data_prep.prepare_svarah import assign_svarah_split
+
+        group = "Telangana_Hyderabad_Telugu_Female_18-30"
+        first = assign_svarah_split(group, seed=42)
+        second = assign_svarah_split(group, seed=42)
+        self.assertIn(first, {"train", "val"})
+        self.assertEqual(first, second)
+
+    def test_svarah_split_assignment_changes_with_seed(self):
+        from data_prep.prepare_svarah import assign_svarah_split
+
+        group = "Karnataka_Bangalore_Kannada_Male_30-45"
+        self.assertNotEqual(
+            assign_svarah_split(group, seed=1),
+            assign_svarah_split(group, seed=42),
+        )
+
     def test_demographic_fallback_is_explicitly_a_proxy(self):
         from data_prep.prepare_svarah import extract_speaker_id
 
