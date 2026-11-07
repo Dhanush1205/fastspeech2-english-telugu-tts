@@ -148,30 +148,39 @@ def _load_indictts_txt_manifest(manifest_path: Path, data_dir: Path) -> List[Dic
             if not line:
                 continue
             
-            # Try pipe delimiter first (file_id|text or file_id|speaker|text)
+            # Canonical format: id|audio_path|text|speaker_group.
             if "|" in line:
-                parts = line.split("|")
+                parts = line.split("|", 3)
                 file_id = parts[0].strip()
-                text = parts[-1].strip()
-                speaker = parts[1].strip() if len(parts) > 2 else "default"
+                if len(parts) >= 3:
+                    manifest_audio = Path(parts[1].strip())
+                    text = parts[2].strip()
+                    speaker = parts[3].strip() if len(parts) == 4 else "unknown"
+                else:
+                    manifest_audio = None
+                    text = parts[1].strip() if len(parts) > 1 else ""
+                    speaker = "unknown"
             else:
-                # Space/tab delimiter
                 parts = line.split(None, 1)
                 if len(parts) < 2:
                     continue
                 file_id = parts[0]
                 text = parts[1]
-                speaker = "default"
-            
-            # Find WAV file
+                speaker = "unknown"
+                manifest_audio = None
+
+            # Prefer the exact audio path stored in the canonical manifest.
             wav_path = None
-            for wav_dir in ["wavs", "wav", "audio", "."]:
-                candidate = data_dir / wav_dir / f"{file_id}.wav"
-                if candidate.exists():
-                    wav_path = str(candidate)
-                    break
-            
-            if wav_path:
+            if manifest_audio is not None and manifest_audio.is_file():
+                wav_path = str(manifest_audio)
+            else:
+                for wav_dir in ["wavs", "wav", "audio", "."]:
+                    candidate = data_dir / wav_dir / f"{file_id}.wav"
+                    if candidate.exists():
+                        wav_path = str(candidate)
+                        break
+
+            if wav_path and text:
                 samples.append({
                     "id": file_id,
                     "audio_path": wav_path,
@@ -372,44 +381,32 @@ def parse_indicmfa_textgrid(
     text: str,
     hop_length: int = 256,
     sr: int = 22050,
+    mel_frames: Optional[int] = None,
 ) -> np.ndarray:
-    """Parse IndicMFA TextGrid to extract grapheme-level durations in frames.
-    
-    IndicMFA generates standard MFA TextGrids with a phones tier containing
-    Telugu graphemes mapped directly from Telugu_Dictionary_g2g.txt.
-    
-    Args:
-        textgrid_path: Path to .TextGrid file produced by IndicMFA
-        text: Expected Telugu text
-        hop_length: Hop length used for mel extraction (256)
-        sr: Sampling rate (22050)
-        
-    Returns:
-        Duration array [n_graphemes] in frames
-    """
+    """Map IndicMFA's G2G TextGrid intervals to tokenizer codepoints plus EOS."""
     import tgt
+    from Telugu.text_processing import telugu_text_normalize
+    from data_prep.duration_alignment import telugu_token_durations
+
+    if mel_frames is None or mel_frames <= 0:
+        raise ValueError("mel_frames must be supplied to align durations to the mel target")
+    normalized = telugu_text_normalize(text, preserve_exact=False)
     tg = tgt.io.read_textgrid(textgrid_path)
-    phone_tier = None
-    for tier in tg.tiers:
-        if "phones" in tier.name.lower() or "phone" in tier.name.lower() or "grapheme" in tier.name.lower():
-            phone_tier = tier
-            break
-            
-    if phone_tier is None and len(tg.tiers) > 0:
-        phone_tier = tg.tiers[0]
-        
+    phone_tier = next(
+        (
+            tier for tier in tg.tiers
+            if "phones" in tier.name.lower()
+            or "phone" in tier.name.lower()
+            or "grapheme" in tier.name.lower()
+        ),
+        None,
+    )
     if phone_tier is None:
         raise ValueError(f"No phones/graphemes tier found in {textgrid_path}")
-        
-    frame_duration = hop_length / sr
-    durations = []
-    for interval in phone_tier:
-        if interval.text not in ["", "sp", "sil", "SIL", "SPN", "<eps>"]:
-            dur_sec = interval.duration()
-            dur_frames = max(1, int(round(dur_sec / frame_duration)))
-            durations.append(dur_frames)
-            
-    return np.array(durations, dtype=np.int64)
+    return telugu_token_durations(
+        normalized, phone_tier, mel_frames,
+        hop_length=hop_length, sample_rate=sr,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -551,40 +548,31 @@ def preprocess_sample(
         np.save(out_dir / "pitch" / f"{sample_id}.npy", f0)
         np.save(out_dir / "energy" / f"{sample_id}.npy", energy)
         
-        # Duration alignment: IndicMFA (Primary) or CTC-Segmentation (Fallback)
-        has_duration = False
-        duration = None
-        
-        if mfa_dir is not None:
-            tg_candidates = [
-                Path(mfa_dir) / f"{sample_id}.TextGrid",
-                Path(mfa_dir) / f"{Path(audio_path).stem}.TextGrid",
-            ]
-            for tg_candidate in tg_candidates:
-                if tg_candidate.exists():
-                    try:
-                        duration = parse_indicmfa_textgrid(str(tg_candidate), sample["text"], hop, sr)
-                        break
-                    except Exception as e:
-                        logger.warning(f"Failed to parse TextGrid {tg_candidate}: {e}")
-        
-        if duration is None and compute_durations:
-            aligner = config.get("preprocessing", {}).get("duration", {}).get(
-                "aligner", config.get("alignment", {}).get("tool", "indicmfa")
+        # Duration supervision is mandatory for FastSpeech 2 training.
+        if not mfa_dir:
+            raise RuntimeError("IndicMFA TextGrid directory is required; duration targets cannot be omitted.")
+        grid_candidates = list(Path(mfa_dir).rglob(f"{sample_id}.TextGrid"))
+        grid_candidates += list(Path(mfa_dir).rglob(f"{sample_id}.textgrid"))
+        if not grid_candidates:
+            raise FileNotFoundError(f"No IndicMFA TextGrid found for {sample_id} under {mfa_dir}")
+        duration = parse_indicmfa_textgrid(
+            str(grid_candidates[0]), sample["text"], hop, sr, mel_frames=T
+        )
+        if len(duration) != len(telugu_text_normalize(sample["text"], preserve_exact=False)) + 1:
+            raise ValueError(
+                f"Telugu duration/token mismatch for {sample_id}: "
+                f"{len(duration)} duration items for "
+                f"{len(telugu_text_normalize(sample['text'], preserve_exact=False)) + 1} tokens"
             )
-            if aligner == "indicmfa":
-                logger.info("IndicMFA requires MFA alignment execution. Check TextGrids in mfa_dir.")
-            else:
-                ctc_model = config.get("preprocessing", {}).get("duration", {}).get(
-                    "ctc_model", config.get("alignment", {}).get("ctc_fallback_model", "ai4bharat/indicwav2vec_v1_telugu")
-                )
-                duration = compute_ctc_durations(audio_path, sample["text"], ctc_model, hop, sr)
-        
-        if duration is not None:
-            dur_dir = out_dir / "duration"
-            dur_dir.mkdir(parents=True, exist_ok=True)
-            np.save(dur_dir / f"{sample_id}.npy", duration)
-            has_duration = True
+        if int(duration.sum()) != int(T):
+            raise ValueError(
+                f"Telugu duration sum mismatch for {sample_id}: "
+                f"{int(duration.sum())} vs mel frames {T}"
+            )
+        dur_dir = out_dir / "duration"
+        dur_dir.mkdir(parents=True, exist_ok=True)
+        np.save(dur_dir / f"{sample_id}.npy", duration)
+        has_duration = True
         
         return {
             "id": sample_id,
@@ -612,6 +600,12 @@ def run_preprocessing(args):
     logger.info(f"Data dir: {args.data_dir}")
     
     config = load_config(args.config)
+
+    if not args.download_indicmfa_models and (not args.mfa_dir or not Path(args.mfa_dir).is_dir()):
+        raise RuntimeError(
+            "A completed IndicMFA TextGrid directory is required. Run "
+            "data_prep/align_dataset.py --language telugu first and pass --mfa_dir."
+        )
     
     if args.download_indicmfa_models:
         logger.info("Downloading official AI4Bharat IndicMFA Telugu models and dictionary...")
@@ -701,6 +695,19 @@ def run_preprocessing(args):
         if result:
             metadata.append(result)
     
+    # Require complete acoustic features and duration alignment for every manifest row.
+    expected_count = len(train_samples) + len(val_samples)
+    if len(metadata) != expected_count or any(not item.get("has_duration") for item in metadata):
+        raise RuntimeError(
+            f"Telugu preprocessing incomplete: {len(metadata)}/{expected_count} samples succeeded "
+            "with valid duration alignment. Training is blocked."
+        )
+    for sample in train_samples + val_samples:
+        for feature in ("mel", "pitch", "energy", "duration"):
+            feature_path = out_dir / feature / f'{sample["id"]}.npy'
+            if not feature_path.is_file():
+                raise FileNotFoundError(f"Required Telugu feature missing: {feature_path}")
+
     # Compute normalization stats
     pitch_files = list((out_dir / "pitch").glob("*.npy"))
     energy_files = list((out_dir / "energy").glob("*.npy"))
