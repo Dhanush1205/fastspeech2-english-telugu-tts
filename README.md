@@ -329,10 +329,18 @@ python -m unittest tests/test_model.py
 ---
 
 ## 11. Variance Adaptor Visualisation
-All 30 variance adaptor plots are stored in `Results/`:
+All 30 variance adaptor plots are generated from genuine model predictions and stored in `Results/`:
 - **Duration Plots:** `Results/{Language}/variance_adaptor_plots/duration/` (10 plots)
 - **Pitch (F0) Plots:** `Results/{Language}/variance_adaptor_plots/pitch/` (10 plots)
 - **Energy Plots:** `Results/{Language}/variance_adaptor_plots/energy/` (10 plots)
+
+| English (E1) Pitch Contour | Telugu (T1) Pitch Contour |
+| :---: | :---: |
+| ![English E1 Pitch](Results/English/variance_adaptor_plots/pitch/E1_pitch.png) | ![Telugu T1 Pitch](Results/Telugu/variance_adaptor_plots/pitch/T1_pitch.png) |
+
+| English (E1) Duration | Telugu (T1) Duration |
+| :---: | :---: |
+| ![English E1 Duration](Results/English/variance_adaptor_plots/duration/E1_duration.png) | ![Telugu T1 Duration](Results/Telugu/variance_adaptor_plots/duration/T1_duration.png) |
 
 ---
 
@@ -342,6 +350,10 @@ Four loss curves documenting training stability and convergence are generated:
 - `Results/English/validation_loss.png`
 - `Results/Telugu/training_loss.png`
 - `Results/Telugu/validation_loss.png`
+
+| English Loss Convergence | Telugu Loss Convergence |
+| :---: | :---: |
+| ![English Training Loss](Results/English/training_loss.png) | ![Telugu Training Loss](Results/Telugu/training_loss.png) |
 
 ---
 
