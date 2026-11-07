@@ -50,7 +50,9 @@ hifigan/*.pth
 hifigan/*.pth.tar
 hifigan/*.pt
 
-# Logs
+# Archives and submissions
+*.zip
+*.tar.gz
 logs/
 *.log
 wandb/
